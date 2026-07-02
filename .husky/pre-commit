@@ -1,0 +1,3 @@
+#!/usr/bin/env sh
+pnpm exec lint-staged
+node scripts/policy/check-protected-branch.mjs

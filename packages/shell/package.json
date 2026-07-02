@@ -1,0 +1,25 @@
+{
+  "name": "@byclaw-nanobot/shell",
+  "productName": "by-claw-nanobot",
+  "version": "0.1.0",
+  "private": true,
+  "main": "dist/main/index.js",
+  "scripts": {
+    "dev": "concurrently -n main,preload \"vite build --config vite.main.config.ts --watch\" \"vite build --config vite.preload.config.ts --watch\"",
+    "dev:electron": "wait-on dist/main/index.js dist/preload/index.js tcp:5173 && node ../../scripts/dev/run-electron.mjs",
+    "build": "vite build --config vite.main.config.ts && vite build --config vite.preload.config.ts",
+    "clean": "node -e \"try{require('node:fs').rmSync('dist',{recursive:true,force:true})}catch{}\""
+  },
+  "dependencies": {
+    "@byclaw-nanobot/shared": "workspace:*",
+    "electron-log": "^5.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "22.15.21",
+    "concurrently": "9.0.0",
+    "electron": "42.0.0",
+    "typescript": "5.7.3",
+    "vite": "6.0.0",
+    "wait-on": "8.0.3"
+  }
+}

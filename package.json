@@ -1,0 +1,47 @@
+{
+  "name": "by-claw-nanobot",
+  "version": "0.1.0",
+  "private": true,
+  "description": "by-claw-nanobot desktop product - nanobot AI agent integration",
+  "packageManager": "pnpm@9.15.4",
+  "engines": {
+    "node": ">=22.16.0",
+    "pnpm": ">=9.0.0"
+  },
+  "scripts": {
+    "prepare": "husky",
+    "format": "prettier --write \"**/*.{json,md,yml,yaml,mjs,cjs,ts,vue}\"",
+    "format:check": "prettier --check \"**/*.{json,md,yml,yaml,mjs,cjs,ts,vue}\"",
+    "build:shared": "pnpm --filter @byclaw-nanobot/shared build",
+    "build:web": "pnpm --filter @byclaw-nanobot/web build",
+    "build:shell": "pnpm --filter @byclaw-nanobot/shell build",
+    "build": "pnpm build:shared && pnpm build:web && pnpm build:shell",
+    "dev:web": "pnpm --filter @byclaw-nanobot/web dev",
+    "dev:shell": "pnpm --filter @byclaw-nanobot/shell dev",
+    "dev:electron": "pnpm --filter @byclaw-nanobot/shell dev:electron",
+    "dev": "node scripts/dev/run-dev.mjs",
+    "pack:clone-webui": "node scripts/build/clone-nanobot-webui.mjs",
+    "pack:nanobot-bundle": "node scripts/build/stage-nanobot-bundle.mjs",
+    "pack:installer-python": "node scripts/build/fetch-installer-python.mjs",
+    "pack:installer-scripts": "node scripts/build/bundle-installer-scripts.mjs",
+    "electron:prefetch": "node scripts/build/prefetch-electron.mjs",
+    "icons:prepare": "node scripts/build/ensure-brand-icons.mjs",
+    "icons:placeholder": "node scripts/build/gen-placeholder-icons.mjs && node scripts/build/gen-installer-images.mjs",
+    "bundle": "pnpm icons:prepare && pnpm build && node scripts/build/bundle-cached.mjs",
+    "bundle:cached": "pnpm icons:prepare && pnpm build && node scripts/build/bundle-cached.mjs",
+    "release:checksums": "node scripts/build/generate-checksums.mjs",
+    "release:size-check": "node scripts/build/check-package-size.mjs"
+  },
+  "lint-staged": {
+    "*.{json,md,yml,yaml}": "prettier --write"
+  },
+  "devDependencies": {
+    "@commitlint/cli": "19.8.1",
+    "@commitlint/config-conventional": "19.8.1",
+    "concurrently": "9.0.0",
+    "electron-builder": "26.0.0",
+    "husky": "9.1.7",
+    "lint-staged": "15.5.2",
+    "prettier": "3.5.3"
+  }
+}

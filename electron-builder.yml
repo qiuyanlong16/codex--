@@ -1,0 +1,72 @@
+appId: com.byclaw.nanobot
+productName: by-claw-nanobot
+electronVersion: 42.0.0
+
+directories:
+  output: dist-release
+  buildResources: resources
+
+files:
+  - package.json
+  - packages/shell/dist/**
+  - packages/web/dist/**
+  - resources/icons/tray-icon.bmp
+  - from: .electron-pack/node_modules
+    to: node_modules
+    filter:
+      - "**/*"
+  - "!**/*.map"
+
+asar: true
+npmRebuild: false
+extraMetadata:
+  main: packages/shell/dist/main/index.js
+
+compression: maximum
+afterPack: scripts/post-build.cjs
+
+extraResources:
+  - from: resources/icons
+    to: icons
+    filter:
+      - tray-icon.bmp
+      - tray-icon.png
+      - icon.png
+  - from: packages/shell/resources/python
+    to: python
+    filter:
+      - "**/*"
+  - from: packages/shell/resources/nanobot-bundle
+    to: nanobot-bundle
+    filter:
+      - "**/*"
+  - from: packages/shell/resources/installer-scripts
+    to: installer-scripts
+
+win:
+  icon: resources/icons/icon.png
+  target:
+    - target: nsis
+
+nsis:
+  artifactName: "${productName}-Setup-${version}-${arch}.exe"
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  perMachine: true
+  installerSidebar: resources/installer/wizard-sidebar.bmp
+  uninstallerSidebar: resources/installer/wizard-sidebar.bmp
+  installerHeader: resources/installer/wizard-banner.bmp
+  installerIcon: resources/icons/icon.ico
+  uninstallerIcon: resources/icons/icon.ico
+  include: resources/installer/custom.nsh
+  deleteAppDataOnUninstall: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+
+mac:
+  target:
+    - target: dmg
+
+linux:
+  target:
+    - target: AppImage
