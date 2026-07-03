@@ -1,29 +1,55 @@
+# ── 依赖 & 构建产物 ─────────────────────────────────────
 node_modules/
 dist/
 dist-release/
+.electron-pack/
 .cache/
+.python-package-cache/
+
+# ── 临时 asar 打包目录 ─────────────────────────────────
+.tmp-asar*/
+.tmp-check-asar/
+.tmp-fresh/
+.tmp-test-asar/
+
+# ── 运行时产物 ─────────────────────────────────────────
 *.log
 .env
 .env.local
 .DS_Store
 Thumbs.db
+coverage/
+*.enc
+
+# ── IDE ─────────────────────────────────────────────────
 .idea/
 .vscode/*
 !.vscode/extensions.json
 !.vscode/settings.json
-*.enc
-coverage/
-.electron-pack/
+
+# ── 包管理 / 缓存 ──────────────────────────────────────
+nanobot-resource.lock.json
+
+# ── 打包资源（体积大，按需生成） ───────────────────────
 packages/shell/resources/nanobot-bundle/
 packages/shell/resources/nanobot_*.tar
 packages/shell/resources/nanobot_*.zip
 packages/shell/resources/nanobot_manifest.json
+packages/shell/resources/python-venv_*.tar
+packages/shell/resources/python-venv_manifest.json
 packages/shell/resources/installer-python/
 packages/shell/resources/installer-scripts/
 packages/shell/resources/python/
+packages/shell/resources/python-venv/
 packages/shell/agents/
-.python-package-cache/
-nanobot-resource.lock.json
+
+# ── vendor 源码（通过脚本生成） ────────────────────────
+vendor/nanobot/
 vendor/nanobot-webui/
 !vendor/nanobot-webui/.gitkeep
+
+# ── 诊断 / 测试安装包 ──────────────────────────────────
+scripts/diag/*.exe
+
+# ── 本地 claude 配置 ───────────────────────────────────
 .claude/settings.local.json

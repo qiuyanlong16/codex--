@@ -20,6 +20,7 @@ export const IPC = {
     maximizeWindow: "app:maximizeWindow",
     closeWindow: "app:closeWindow",
     openExternal: "app:openExternal",
+    isMaximized: "app:isMaximized",
   },
   log: {
     write: "log:write",
@@ -36,6 +37,7 @@ export const IPC_EVENTS = {
   startupFailed: "startup:failed",
   nanobotReady: "nanobot:ready",
   encryptKeyReady: "encrypt:keyReady",
+  windowMaximizedChanged: "window:maximizedChanged",
 } as const;
 
 export type IpcInvokeChannel =
@@ -44,6 +46,7 @@ export type IpcInvokeChannel =
   | typeof IPC.app.maximizeWindow
   | typeof IPC.app.closeWindow
   | typeof IPC.app.openExternal
+  | typeof IPC.app.isMaximized
   | typeof IPC.log.write
   | typeof IPC.log.exportBundle
   | typeof IPC.startup.getState;
@@ -53,7 +56,8 @@ export type IpcEventChannel =
   | typeof IPC_EVENTS.startupReady
   | typeof IPC_EVENTS.startupFailed
   | typeof IPC_EVENTS.nanobotReady
-  | typeof IPC_EVENTS.encryptKeyReady;
+  | typeof IPC_EVENTS.encryptKeyReady
+  | typeof IPC_EVENTS.windowMaximizedChanged;
 
 export interface IpcRequestMap {
   [IPC.app.getInfo]: undefined;
@@ -61,6 +65,7 @@ export interface IpcRequestMap {
   [IPC.app.maximizeWindow]: undefined;
   [IPC.app.closeWindow]: undefined;
   [IPC.app.openExternal]: { url: string };
+  [IPC.app.isMaximized]: undefined;
   [IPC.log.write]: LogWriteRequest;
   [IPC.log.exportBundle]: LogExportBundleRequest;
   [IPC.startup.getState]: undefined;
@@ -72,6 +77,7 @@ export interface IpcResponseMap {
   [IPC.app.maximizeWindow]: { ok: boolean };
   [IPC.app.closeWindow]: { ok: boolean };
   [IPC.app.openExternal]: { ok: boolean };
+  [IPC.app.isMaximized]: { maximized: boolean };
   [IPC.log.write]: { accepted: boolean };
   [IPC.log.exportBundle]: LogExportBundleResponse;
   [IPC.startup.getState]: StartupStateSnapshot;
@@ -83,6 +89,7 @@ export const IPC_INVOKE_CHANNELS: readonly IpcInvokeChannel[] = [
   IPC.app.maximizeWindow,
   IPC.app.closeWindow,
   IPC.app.openExternal,
+  IPC.app.isMaximized,
   IPC.log.write,
   IPC.log.exportBundle,
   IPC.startup.getState,

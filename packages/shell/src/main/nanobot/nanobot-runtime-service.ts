@@ -1,6 +1,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { createConnection } from "node:net";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { DEFAULT_BIND_HOST, NANOBOT_DEFAULT_PORT } from "./nanobot-constants.js";
 import { mainLog } from "../core/logging/main-logger.js";
@@ -80,7 +81,7 @@ async function probeHealthz(host: string, port: number, timeoutMs: number): Prom
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const response = await fetch(`http://${host}:${port}/`, { signal: controller.signal });
+    const response = await fetch(`http://${host}:${port}/health`, { signal: controller.signal });
     return response.ok;
   } catch {
     return false;
@@ -177,8 +178,8 @@ export class NanobotRuntimeService {
     };
   }
 
-  prepareRuntime(): NanobotIntegrityResult {
-    this.bundleRef = resolveNanobotBundle();
+  async prepareRuntime(): Promise<NanobotIntegrityResult> {
+    this.bundleRef = await resolveNanobotBundle();
     this.bundleRoot = this.bundleRef?.root ?? null;
     fs.mkdirSync(this.stateDir, { recursive: true });
     if (this.bundleRef) {
@@ -191,10 +192,17 @@ export class NanobotRuntimeService {
   }
 
   async ensureReady(): Promise<NanobotIntegrityResult> {
-    const integrity = this.prepareRuntime();
+    const integrity = await this.prepareRuntime();
     if (integrity.state !== "ready") {
       return integrity;
     }
+
+    // NOTE: setupPath() removed — nanobot.cmd and app both use absolute paths
+    // to the venv python.exe; no need to pollute HKCU Environment PATH.
+
+    // Auto-initialize nanobot config if missing (deferred from installer)
+    await this.ensureConfigInitialized();
+
     try {
       await this.ensureGatewayRunning();
     } catch (err) {
@@ -207,6 +215,68 @@ export class NanobotRuntimeService {
       };
     }
     return this.checkIntegrity();
+  }
+
+  /**
+   * Run `nanobot onboard` to create default config if ~/.nanobot/config.json
+   * doesn't exist. Normally the installer copies a pre-built config template,
+   * so this is only a fallback for upgrades from older versions.
+   * Has a generous timeout since onboard creates workspace + git repo.
+   */
+  private async ensureConfigInitialized(): Promise<void> {
+    const configPath = path.join(os.homedir(), ".nanobot", "config.json");
+    if (fs.existsSync(configPath)) {
+      mainLog.info("nanobot", "config exists", { configPath });
+      return;
+    }
+
+    mainLog.info("nanobot", "config missing, running onboard (fallback, with timeout)...");
+    const pythonExe = this.getPythonExecutable();
+    const ONBOARD_TIMEOUT_MS = 120_000;
+
+    await new Promise<void>((resolve) => {
+      const child = spawn(
+        pythonExe,
+        ["-m", "nanobot", "onboard"],
+        {
+          windowsHide: true,
+          cwd: this.stateDir,
+        }
+      );
+
+      // Consume both stdout and stderr to prevent pipe buffer deadlock
+      let stdout = "";
+      let stderr = "";
+      child.stdout?.on("data", (data) => { stdout += data.toString(); });
+      child.stderr?.on("data", (data) => { stderr += data.toString(); });
+
+      const timer = setTimeout(() => {
+        mainLog.warn("nanobot", "onboard timeout, killing process", {
+          timeoutMs: ONBOARD_TIMEOUT_MS,
+        });
+        child.kill();
+      }, ONBOARD_TIMEOUT_MS);
+
+      child.on("close", (code) => {
+        clearTimeout(timer);
+        if (code !== 0) {
+          mainLog.warn("nanobot", "onboard failed", {
+            exitCode: code,
+            stderr: stderr.slice(0, 500),
+          });
+        } else {
+          mainLog.info("nanobot", "onboard completed", {
+            stdout: stdout.slice(0, 200),
+          });
+        }
+        resolve();
+      });
+      child.on("error", (err) => {
+        clearTimeout(timer);
+        mainLog.warn("nanobot", "onboard error", { error: err.message });
+        resolve();
+      });
+    });
   }
 
   async whenHealthy(timeoutMs = 30_000): Promise<void> {
@@ -274,7 +344,7 @@ export class NanobotRuntimeService {
 
     const pythonExe = this.getPythonExecutable();
 
-    mainLog.info("nanobot", "spawning nanobot serve", {
+    mainLog.info("nanobot", "spawning nanobot gateway", {
       pythonExe,
       port: this.gatewayPort,
       phase: this.phase,
@@ -285,11 +355,10 @@ export class NanobotRuntimeService {
       [
         "-m",
         "nanobot",
-        "serve",
+        "gateway",
+        "--foreground",
         "--port",
         String(this.gatewayPort),
-        "--host",
-        this.host,
       ],
       {
         cwd: this.stateDir,
@@ -375,12 +444,32 @@ export class NanobotRuntimeService {
     const started = Date.now();
     while (Date.now() - started < timeoutMs) {
       if (this.shuttingDown) return false;
+      // Try real /ready endpoint first
+      if (await this.probeReadyz(this.host, this.gatewayPort, READYZ_PROBE_MS)) {
+        return true;
+      }
+      // Fallback: if gateway serves WebUI on same port as /health,
+      // healthz OK implies the server is fully operational.
       if (await probeHealthz(this.host, this.gatewayPort, READYZ_PROBE_MS)) {
         return true;
       }
       await sleep(READYZ_POLL_INTERVAL_MS);
     }
     return false;
+  }
+
+  /** Probe /ready endpoint — some nanobot gateways expose it. */
+  private async probeReadyz(host: string, port: number, timeoutMs: number): Promise<boolean> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const response = await fetch(`http://${host}:${port}/ready`, { signal: controller.signal });
+      return response.ok;
+    } catch {
+      return false;
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   private handleProcessExit(code: number | null, signal: NodeJS.Signals | null): void {

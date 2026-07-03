@@ -32,8 +32,13 @@ extraResources:
       - tray-icon.bmp
       - tray-icon.png
       - icon.png
-  - from: packages/shell/resources/python
-    to: python
+  - from: packages/shell/resources
+    to: .
+    filter:
+      - "python-venv_*.tar"
+      - python-venv_manifest.json
+  - from: packages/web/dist
+    to: webui-dist
     filter:
       - "**/*"
   - from: packages/shell/resources/nanobot-bundle
@@ -42,6 +47,8 @@ extraResources:
       - "**/*"
   - from: packages/shell/resources/installer-scripts
     to: installer-scripts
+  - from: resources/nanobot-config-template
+    to: nanobot-config-template
 
 win:
   icon: resources/icons/icon.png

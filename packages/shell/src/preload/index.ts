@@ -30,8 +30,11 @@ const electronAPI = {
     minimizeWindow: () => invoke(IPC.app.minimizeWindow) as Promise<{ ok: boolean }>,
     maximizeWindow: () => invoke(IPC.app.maximizeWindow) as Promise<{ ok: boolean }>,
     closeWindow: () => invoke(IPC.app.closeWindow) as Promise<{ ok: boolean }>,
+    isMaximized: () => invoke(IPC.app.isMaximized) as Promise<{ maximized: boolean }>,
     openExternal: (url: string) =>
       invoke(IPC.app.openExternal, { url }) as Promise<{ ok: boolean }>,
+    onMaximizeChanged: (callback: (payload: { maximized: boolean }) => void) =>
+      subscribeEvent(IPC_EVENTS.windowMaximizedChanged, callback),
   },
   startup: {
     getState: () => invoke(IPC.startup.getState) as Promise<StartupStateSnapshot>,

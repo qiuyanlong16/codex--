@@ -1,7 +1,10 @@
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { resolveResourcesPath } from "../core/platform-paths.js";
+import { spawn, spawnSync } from "node:child_process";
+import { resolveResourcesPath, getByclawHomeDir } from "../core/platform-paths.js";
+import { mainLog } from "../core/logging/main-logger.js";
 
 export type NanobotBundleLayout = "packaged" | "dev-checkout";
 
@@ -16,11 +19,19 @@ const DEV_ROOT_ENV = "BYCLAW_NANOBOT_DEV_ROOT";
 const DEV_PYTHON_ENV = "BYCLAW_NANOBOT_DEV_PYTHON";
 
 function pythonExecutableInDir(dir: string): string | null {
+  // Check both the directory root and the venv Scripts/ bin/ subdirectory.
+  const searchDirs = [
+    dir,
+    path.join(dir, "Scripts"), // Windows venv
+    path.join(dir, "bin"),     // Unix venv
+  ];
   const names = process.platform === "win32" ? ["python.exe", "python"] : ["python", "python.exe"];
-  for (const name of names) {
-    const candidate = path.join(dir, name);
-    if (fs.existsSync(candidate)) {
-      return candidate;
+  for (const searchDir of searchDirs) {
+    for (const name of names) {
+      const candidate = path.join(searchDir, name);
+      if (fs.existsSync(candidate)) {
+        return candidate;
+      }
     }
   }
   return null;
@@ -30,11 +41,16 @@ function shellResourceCandidates(relativePath: string): string[] {
   const resourcesPath = resolveResourcesPath();
   const bundledMainDir = path.dirname(fileURLToPath(import.meta.url));
   const cwd = process.cwd();
+  // Fallback: when the app is installed under Program Files the venv is
+  // extracted to the user-writable state directory under resources/
+  // (see ensureVenvExtracted).
+  const fallbackVenv = path.join(getByclawHomeDir(), "resources", relativePath);
   return [
     resourcesPath ? path.join(resourcesPath, relativePath) : null,
     path.join(bundledMainDir, "../../resources", relativePath),
     path.join(cwd, "resources", relativePath),
     path.join(cwd, "packages", "shell", "resources", relativePath),
+    fallbackVenv,
   ].filter((p): p is string => Boolean(p));
 }
 
@@ -46,6 +62,9 @@ function devCheckoutCandidates(): string[] {
   }
   const bundledMainDir = path.dirname(fileURLToPath(import.meta.url));
   const repoRoot = path.resolve(bundledMainDir, "../../../..");
+  // vendor/nanobot is the primary dev location (populated by pack:clone-nanobot)
+  candidates.push(path.resolve(repoRoot, "vendor", "nanobot"));
+  // Fallback: nanobot checked out next to by-claw-nanobot
   candidates.push(path.resolve(repoRoot, "../nanobot"));
   candidates.push(path.resolve(repoRoot, "nanobot"));
   return [...new Set(candidates)];
@@ -83,8 +102,162 @@ function devPythonOverride(): string | null {
   return null;
 }
 
+/**
+ * Extract the python-venv from tar shards (async, non-blocking).
+ *
+ * In a packaged app the install dir is typically Program Files, which is not
+ * writable by normal users.  We always extract into the user-writable state
+ * directory (~/.by-claw-nanobot/resources/python-venv) using the system
+ * tar.exe directly — no child-process unpack script, no bundled JS tar module.
+ */
+export async function ensureVenvExtracted(): Promise<void> {
+  const resourcesPath = resolveResourcesPath();
+  if (!resourcesPath) return;
+
+  // Target: always the user-writable state dir, never Program Files.
+  const stateDir = getByclawHomeDir();
+  const fallbackResources = path.join(stateDir, "resources");
+  const fallbackVenv = path.join(fallbackResources, "python-venv");
+  const fallbackPython = path.join(fallbackVenv, "Scripts", "python.exe");
+
+  // Already extracted?
+  if (fs.existsSync(fallbackPython)) return;
+
+  // Check for tar shards in the packaged resources/
+  const manifestPath = path.join(resourcesPath, "python-venv_manifest.json");
+  let hasShards = false;
+  try {
+    hasShards =
+      fs.existsSync(manifestPath) ||
+      fs.readdirSync(resourcesPath).some((f) => /^python-venv_\d+\.tar$/.test(f));
+  } catch {
+    return;
+  }
+  if (!hasShards) return;
+
+  mainLog.info("nanobot", "extracting venv to user state dir (async)", {
+    target: fallbackVenv,
+  });
+
+  try {
+    fs.mkdirSync(fallbackResources, { recursive: true });
+
+    // Copy tar shards to the state dir (tar.exe extracts in-place).
+    for (const entry of fs.readdirSync(resourcesPath)) {
+      if (!/^python-venv(_\d+\.tar|_manifest\.json)$/.test(entry)) continue;
+      const src = path.join(resourcesPath, entry);
+      const dest = path.join(fallbackResources, entry);
+      if (!fs.existsSync(dest)) fs.copyFileSync(src, dest);
+    }
+
+    // Extract each shard using system tar.exe (async).
+    const tarExe = resolveSystemTarExe();
+    if (!tarExe) {
+      mainLog.error("nanobot", "tar.exe not found on system, cannot extract venv");
+      return;
+    }
+
+    for (const entry of fs.readdirSync(fallbackResources)) {
+      if (!/^python-venv_\d+\.tar$/.test(entry)) continue;
+      const tarFile = path.join(fallbackResources, entry);
+      const started = Date.now();
+      try {
+        await runTarAsync(tarExe, tarFile, fallbackResources);
+        mainLog.info("nanobot", `extracted ${entry}`, {
+          durationMs: Date.now() - started,
+        });
+        try { fs.unlinkSync(tarFile); } catch { /* ignore */ }
+      } catch (err) {
+        const detail = err instanceof Error ? err.message : String(err);
+        mainLog.error("nanobot", `extraction failed for ${entry}`, {
+          durationMs: Date.now() - started,
+          detail,
+        });
+        throw new Error(`venv_extract_failed: ${entry}: ${detail}`);
+      }
+    }
+
+    // Clean up manifest
+    try { fs.unlinkSync(path.join(fallbackResources, "python-venv_manifest.json")); } catch { /* ignore */ }
+
+    if (fs.existsSync(fallbackPython)) {
+      mainLog.info("nanobot", "venv extraction complete", { fallbackVenv });
+    } else {
+      // List directory contents to help diagnose what went wrong
+      let dirContents: string[] = [];
+      try { dirContents = fs.readdirSync(fallbackVenv); } catch { /* ignore */ }
+      mainLog.error("nanobot", "venv extraction done but python.exe missing", {
+        fallbackVenv,
+        dirContents,
+      });
+      throw new Error(`venv_extract_incomplete: python.exe not found at ${fallbackPython}, dir contents: ${dirContents.join(", ") || "(empty)"}`);
+    }
+  } catch (err) {
+    mainLog.error("nanobot", "venv extraction failed", {
+      detail: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
+
+/** Run tar.exe asynchronously (non-blocking). */
+function runTarAsync(tarExe: string, tarFile: string, cwd: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(tarExe, ["-xf", tarFile, "-C", cwd], {
+      windowsHide: true,
+    });
+    let stderr = "";
+    child.stderr?.on("data", (data) => { stderr += data.toString(); });
+    child.on("close", (code) => {
+      const hasErrors =
+        code !== 0 ||
+        /Permission denied|Can't create|Cannot create/i.test(stderr);
+      if (hasErrors) {
+        reject(new Error(stderr || `tar exited ${code}`));
+      } else {
+        resolve();
+      }
+    });
+    child.on("error", reject);
+  });
+}
+
+/** Find a working tar.exe on the system (async). */
+async function resolveSystemTarExe(): Promise<string | null> {
+  const candidates = [
+    path.join(process.env.WINDIR || "C:\\Windows", "System32", "tar.exe"),
+    "tar.exe",
+  ];
+  for (const c of candidates) {
+    try {
+      if (c !== "tar.exe" && !fs.existsSync(c)) continue;
+      const version = await runCommandAsync(c, ["--version"]);
+      if (version !== null) return c;
+    } catch { /* try next */ }
+  }
+  return null;
+}
+
+/** Run a command asynchronously and return stdout, or null on failure. */
+function runCommandAsync(cmd: string, args: string[]): Promise<string | null> {
+  return new Promise((resolve) => {
+    const child = spawn(cmd, args, { windowsHide: true });
+    let stdout = "";
+    child.stdout?.on("data", (data) => { stdout += data.toString(); });
+    child.on("close", (code) => {
+      resolve(code === 0 ? stdout : null);
+    });
+    child.on("error", () => resolve(null));
+  });
+}
+
 /** Resolve nanobot bundle (from user-provided zip or dev checkout). */
-export function resolveNanobotBundle(): NanobotBundleRef | null {
+export async function resolveNanobotBundle(): Promise<NanobotBundleRef | null> {
+  // Only attempt venv extraction in dev mode (installer handles it in production).
+  // In production, if venv is missing, we return missing — no startup extraction.
+  if (process.env.NODE_ENV === "development") {
+    await ensureVenvExtracted();
+  }
+
   // Check dev Python override first
   const devPython = devPythonOverride();
   if (devPython) {
@@ -98,6 +271,7 @@ export function resolveNanobotBundle(): NanobotBundleRef | null {
 
   // Check packaged locations
   const packagedRoots = [
+    ...shellResourceCandidates("python-venv"),
     ...shellResourceCandidates("nanobot-bundle"),
     ...shellResourceCandidates("python"),
   ];
@@ -129,6 +303,10 @@ export function resolveNanobotPythonExecutable(bundleRef?: NanobotBundleRef | nu
   }
 
   // Search in resources
+  for (const dir of shellResourceCandidates("python-venv")) {
+    const exe = pythonExecutableInDir(dir);
+    if (exe) return exe;
+  }
   for (const dir of shellResourceCandidates("python")) {
     const exe = pythonExecutableInDir(dir);
     if (exe) return exe;
@@ -144,4 +322,24 @@ export function resolveNanobotPythonExecutable(bundleRef?: NanobotBundleRef | nu
 export function describeNanobotBundle(bundle: NanobotBundleRef | null): string {
   if (!bundle) return "missing";
   return `${bundle.layout}@${bundle.root}`;
+}
+
+/**
+ * Read the main server port (WebUI + API + WebSocket) from nanobot config.
+ * The gateway's --port flag only controls the health-check server (18790);
+ * the main server that serves the WebUI and API runs on a different port
+ * (default 8765, configurable via channels.websocket.port in config.json).
+ *
+ * Returns 8765 if config can't be read (caller should use this default).
+ */
+export function resolveNanobotMainServerPort(): number {
+  const configPath = path.join(os.homedir(), ".nanobot", "config.json");
+  try {
+    if (!fs.existsSync(configPath)) return 8765;
+    const raw = fs.readFileSync(configPath, "utf8");
+    const config = JSON.parse(raw);
+    const wsPort = config?.channels?.websocket?.port;
+    if (typeof wsPort === "number" && wsPort > 0) return wsPort;
+  } catch { /* use default */ }
+  return 8765;
 }

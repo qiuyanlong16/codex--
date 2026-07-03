@@ -123,7 +123,8 @@ export async function fetchInstallerPython() {
       copyFileSync(src, join(DEST_DIR, entry));
     }
   }
-  const mb = (statSync(join(DEST_DIR, dirname(pythonExe).split("/").pop() ?? "python.exe")).size / 1024 / 1024).toFixed(1);
+  const exeDest = findPythonExe(DEST_DIR);
+  const mb = exeDest ? (statSync(exeDest).size / 1024 / 1024).toFixed(1) : "?";
   console.log(`[fetch-installer-python] OK → ${DEST_DIR} (${mb} MB)`);
 }
 

@@ -40,10 +40,26 @@ export function registerWindowHandlers(getWindow: () => Electron.BrowserWindow |
     return { ok: true };
   });
 
+  ipcMain.handle(IPC.app.isMaximized, () => {
+    return { maximized: getWindow()?.isMaximized() ?? false };
+  });
+
   ipcMain.handle(IPC.app.openExternal, (_event, args: { url: string }) => {
     void shell.openExternal(args.url);
     return { ok: true };
   });
+
+  // Push maximize/unmaximize state changes to the renderer so the titlebar
+  // icon can flip between "maximize" and "restore" without polling.
+  const win = getWindow();
+  if (win) {
+    win.on("maximize", () => {
+      win.webContents.send(IPC_EVENTS.windowMaximizedChanged, { maximized: true });
+    });
+    win.on("unmaximize", () => {
+      win.webContents.send(IPC_EVENTS.windowMaximizedChanged, { maximized: false });
+    });
+  }
 }
 
 export function registerLogHandlers(): void {

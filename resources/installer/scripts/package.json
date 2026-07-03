@@ -1,0 +1,7 @@
+{
+  "name": "byclaw-nanobot-installer-scripts",
+  "private": true,
+  "dependencies": {
+    "tar": "7.4.3"
+  }
+}

@@ -159,7 +159,7 @@ FunctionEnd
   ${EndIf}
 !macroend
 
-; ─── Install: nanobot bundle unpack + Python install + auto-start ────────────
+; ─── Install: nanobot bundle unpack + Python venv ─────────────────────────────
 !macro customInstall
   ; Unpack nanobot bundle if present (zip-based)
   IfFileExists "$INSTDIR\resources\nanobot-bundle\nanobot_manifest.json" nanobot_already_unpacked 0
@@ -173,11 +173,94 @@ FunctionEnd
   nanobot_already_unpacked:
   nanobot_done:
 
-  ; Install Python embedded distribution if present
-  IfFileExists "$INSTDIR\resources\python\python.zip" 0 python_done
-    nsExec::ExecToLog 'powershell -NoProfile -Command "Expand-Archive -LiteralPath ''$INSTDIR\resources\python\python.zip'' -DestinationPath ''$INSTDIR\resources\python'' -Force"'
-    Delete "$INSTDIR\resources\python\python.zip"
-  python_done:
+  ; ── Extract Python venv from tar shards ──
+  ; Dynamically discover ALL python-venv_*.tar shards (not hardcoded count).
+  ; pack-python-venv.mjs may produce 2, 3, or more shards depending on venv size.
+  ReadEnvStr $0 USERPROFILE
+  ${If} $0 != ""
+    DetailPrint "Extracting Python environment (this may take a minute)..."
+    SetDetailsPrint textonly
+
+    SetOutPath "$0\.by-claw-nanobot\resources"
+    ; Copy ALL python-venv_* files (shards + manifest) using wildcard
+    CopyFiles /SILENT "$INSTDIR\resources\python-venv_*" "$0\.by-claw-nanobot\resources\"
+
+    ; Loop: discover and extract every python-venv_*.tar shard
+    FindFirst $1 $2 "$0\.by-claw-nanobot\resources\python-venv_*.tar"
+    StrCmp $2 "" extract_done
+    extract_loop:
+      DetailPrint "  extracting $2..."
+      nsExec::ExecToLog '"$WINDIR\System32\tar.exe" -xf "$0\.by-claw-nanobot\resources\$2" -C "$0\.by-claw-nanobot\resources"'
+      Pop $3
+      ${If} $3 != 0
+        MessageBox MB_OK|MB_ICONSTOP "Failed to extract Python environment ($2, exit code $3). Please retry installation."
+        FindClose $1
+        Abort
+      ${EndIf}
+      ; Delete tar shard after successful extraction
+      Delete "$0\.by-claw-nanobot\resources\$2"
+      FindNext $1 $2
+      StrCmp $2 "" extract_done
+      Goto extract_loop
+    extract_done:
+    FindClose $1
+
+    ; Cleanup manifest
+    Delete "$0\.by-claw-nanobot\resources\python-venv_manifest.json"
+
+    ; Verify: python.exe + nanobot module must exist
+    ${IfNot} ${FileExists} "$0\.by-claw-nanobot\resources\python-venv\Scripts\python.exe"
+      MessageBox MB_OK|MB_ICONSTOP "Python environment extraction failed: python.exe not found. Please retry installation."
+      Abort
+    ${EndIf}
+    ${IfNot} ${FileExists} "$0\.by-claw-nanobot\resources\python-venv\Lib\site-packages\nanobot\__init__.py"
+      MessageBox MB_OK|MB_ICONSTOP "Python environment extraction failed: nanobot module missing. Please retry installation."
+      Abort
+    ${EndIf}
+
+    DetailPrint "Python environment ready."
+    SetDetailsPrint both
+  ${EndIf}
+
+  ; ── Copy nanobot config template to user home ──
+  ; Instead of running `python -m nanobot onboard` (slow, interactive),
+  ; we ship a pre-built config template and copy it to ~/.nanobot/.
+  ; Always overwrite to ensure a valid config (provider, ports, etc.).
+  ReadEnvStr $0 USERPROFILE
+  ${If} $0 != ""
+    DetailPrint "Creating nanobot configuration..."
+
+    ; Create directories
+    CreateDirectory "$0\.nanobot"
+    CreateDirectory "$0\.nanobot\workspace"
+    CreateDirectory "$0\.nanobot\workspace\memory"
+
+    ; Copy config template (always overwrite to ensure valid config)
+    CopyFiles /SILENT "$INSTDIR\resources\nanobot-config-template\config.json" "$0\.nanobot\config.json"
+
+    ; Copy workspace template files (only if missing — preserve user changes)
+    CopyFiles /FILESONLY "$INSTDIR\resources\nanobot-config-template\workspace\AGENTS.md" "$0\.nanobot\workspace\"
+    CopyFiles /FILESONLY "$INSTDIR\resources\nanobot-config-template\workspace\HEARTBEAT.md" "$0\.nanobot\workspace\"
+    CopyFiles /FILESONLY "$INSTDIR\resources\nanobot-config-template\workspace\SOUL.md" "$0\.nanobot\workspace\"
+    CopyFiles /FILESONLY "$INSTDIR\resources\nanobot-config-template\workspace\USER.md" "$0\.nanobot\workspace\"
+
+    ; Personalize USER.md with Windows username
+    ReadEnvStr $4 USERNAME
+    ${If} $4 != ""
+      nsExec::ExecToLog 'powershell -NoProfile -Command "(Get-Content \'$0\.nanobot\workspace\USER.md\') -replace ''\(your name\)'', \'$4\' | Set-Content \'$0\.nanobot\workspace\USER.md\' -Encoding UTF8"'
+    ${EndIf}
+
+    ; Create empty memory files if missing
+    nsExec::ExecToLog 'powershell -NoProfile -Command "if (!(Test-Path \'$0\.nanobot\workspace\memory\MEMORY.md\')) { Set-Content \'$0\.nanobot\workspace\memory\MEMORY.md\' \'# Memory\' -Encoding UTF8 }"'
+    nsExec::ExecToLog 'powershell -NoProfile -Command "if (!(Test-Path \'$0\.nanobot\workspace\memory\history.jsonl\')) { New-Item \'$0\.nanobot\workspace\memory\history.jsonl\' -ItemType File -Force | Out-Null }"'
+
+    DetailPrint "Nanobot configuration ready."
+  ${EndIf}
+
+  ; Create nanobot.cmd CLI wrapper (lightweight file write)
+  ${If} $0 != ""
+    nsExec::ExecToLog 'powershell -NoProfile -Command "Set-Content -Path \'$0\.by-claw-nanobot\nanobot.cmd\' -Value \'@echo off`r`nset VENV_DIR=$0\.by-claw-nanobot\resources\python-venv`r`n\"%VENV_DIR%\Scripts\python.exe\" -m nanobot %*\' -Encoding ASCII"'
+  ${EndIf}
 
   ${If} $RunAtStartup == ${BST_CHECKED}
     WriteRegStr HKLM \
@@ -189,6 +272,9 @@ FunctionEnd
       "Software\Microsoft\Windows\CurrentVersion\Run" \
       "by-claw-nanobot"
   ${EndIf}
+
+  ; Minimize installer window so it doesn't block the app when user clicks Run/Finish
+  ShowWindow $HWNDPARENT ${SW_MINIMIZE}
 !macroend
 
 ; ─── Uninstall: kill processes before removing files ─────────────────────────
@@ -216,10 +302,11 @@ FunctionEnd
     RMDir /r "$0\ByNanobot"
   ${EndIf}
 
-  MessageBox MB_YESNO|MB_ICONQUESTION "Also delete agent data in ~/.by-claw-nanobot?" IDNO skip_agent_data
+  MessageBox MB_YESNO|MB_ICONQUESTION "Also delete nanobot data in $$HOME\.by-claw-nanobot and $$HOME\.nanobot?" IDNO skip_agent_data
   ReadEnvStr $0 USERPROFILE
   ${If} $0 != ""
     RMDir /r "$0\.by-claw-nanobot"
+    RMDir /r "$0\.nanobot"
   ${EndIf}
   skip_agent_data:
 
