@@ -120,6 +120,39 @@ pnpm bundle
 | home 目录 | `~/.by-claw-nanobot` |
 | 安装路径 | `C:\Program Files (x86)\ByNanobot\by-claw-nanobot` |
 
+## 启动流程与性能
+
+### 启动时间线（典型值）
+
+| 阶段 | 耗时 | 说明 |
+|------|------|------|
+| Electron 启动 + 窗口创建 | ~50ms | 显示 "Starting nanobot..." loading |
+| Python venv 加载 | ~2.7s | 加载 python.exe + nanobot 模块 |
+| Git store 初始化 | ~0.9s | workspace git repo |
+| Tool 注册 | **~7.7s** | 扫描 CLI apps、加载 19 个 tool 定义（**瓶颈**） |
+| WebSocket + Health endpoint | ~0.6s | 启动 server |
+| healthz / readyz 通过 | ~0.3s | 确认 gateway healthy |
+| 加载 WebUI | ~0.5s | 从 gateway 8766 端口加载 |
+| **总计** | **~12s** | |
+
+### 瓶颈分析
+
+主要瓶颈在 **nanobot Python 端的 tool 注册**（~7.7s），这是 nanobot 内部扫描 CLI apps、加载 tool 定义的过程，Electron 侧无法控制。
+
+### 优化方向（TODO）
+
+1. **WebUI 从 Electron 本地加载**（而非等待 gateway）
+   - 当前：WebUI 从 gateway 8766 端口加载，必须等 gateway 完全启动
+   - 优化：从 Electron 本地 `packages/web/dist` 加载 HTML/JS/CSS，WebSocket 异步连接 gateway
+   - 效果：窗口立即显示 WebUI 界面（带 loading 状态），用户感知启动时间 < 1s
+
+2. **显示进度指示器**
+   - 当前：静态 "Starting nanobot..." 文本
+   - 优化：带进度条或阶段性提示（"加载 Python 环境..."、"启动 gateway..."、"连接中..."）
+
+3. **预加载 Python 进程**（复杂，收益有限）
+   - 在后台预启动 Python 进程，减少感知延迟
+
 ## 仓库
 
 主仓库：`git@gitlab.lenovohuishang.com:baiying-ai/by-claw-nanobot2.git`
