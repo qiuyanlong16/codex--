@@ -283,8 +283,9 @@ FunctionEnd
     nsExec::ExecToLog 'powershell -NoProfile -Command "Set-Content -Path \'$0\.by-claw-nanobot\nanobot.cmd\' -Value \'@echo off`r`nset VENV_DIR=$0\.by-claw-nanobot\resources\python-venv`r`n\"%VENV_DIR%\Scripts\python.exe\" -m nanobot %*\' -Encoding ASCII"'
 
     ; Add %USERPROFILE%\.by-claw-nanobot to user PATH so `nanobot` command works globally
-    ; Use PowerShell for reliable PATH manipulation
-    nsExec::ExecToLog 'powershell -NoProfile -ExecutionPolicy Bypass -Command "$d = \'$0\.by-claw-nanobot\'; $p = [Environment]::GetEnvironmentVariable(\'PATH\', \'User\'); if ($p -and $p.Contains($d)) { Write-Host \'Already in PATH\' } else { $np = if ($p) { $p + \';\' + $d } else { $d }; [Environment]::SetEnvironmentVariable(\'PATH\', $np, \'User\'); Write-Host \'Added to PATH\' }"'
+    ReadRegStr $1 HKCU "Environment" "PATH"
+    WriteRegExpandStr HKCU "Environment" "PATH" "$1;$0\.by-claw-nanobot"
+    DetailPrint "Added $0\.by-claw-nanobot to user PATH"
     ; Broadcast WM_SETTINGCHANGE to notify other applications
     SendMessage ${HWND_BROADCAST} ${WM_SETTINGCHANGE} 0 "STR:Environment" /TIMEOUT=5000
   ${EndIf}
