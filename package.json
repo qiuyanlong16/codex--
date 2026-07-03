@@ -19,7 +19,12 @@
     "build:shared": "pnpm --filter @byclaw-nanobot/shared build",
     "build:web": "pnpm --filter @byclaw-nanobot/web build",
     "build:shell": "pnpm --filter @byclaw-nanobot/shell build",
-    "build": "pnpm build:shared && pnpm build:web && pnpm build:shell"
+    "build": "pnpm build:shared && pnpm build:web && pnpm build:shell",
+    "pack:clone-nanobot": "node scripts/build/clone-nanobot.mjs",
+    "pack:sync-webui": "node scripts/build/sync-webui.mjs",
+    "pack:create-venv": "node scripts/build/create-python-venv.mjs",
+    "pack:pack-venv": "node scripts/build/pack-python-venv.mjs",
+    "bundle": "node scripts/build/build-all.mjs"
   },
   "main": "packages/shell/dist/main/index.js",
   "devDependencies": {

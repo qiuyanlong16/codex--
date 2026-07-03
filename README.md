@@ -46,19 +46,20 @@ by-claw-nanobot/
 ## 快速开始
 
 ```bash
-# 前提：Node >= 22.16.0，pnpm >= 9.0.0，Python 3（用于创建 venv）
+# 前提：Node >= 22.16.0，pnpm >= 9.0.0，Python >= 3.12（用于创建 venv）
+# 注意：当前打包流程仅支持 Windows
 
 # 1. 克隆 nanobot 源码到 vendor/nanobot/
-pnpm --silent node scripts/build/clone-nanobot.mjs
+pnpm pack:clone-nanobot
 
 # 2. 同步 React WebUI 到 packages/web/
-node scripts/build/sync-webui.mjs
+pnpm pack:sync-webui
 
 # 3. 安装 JS 依赖
 pnpm install
 
 # 4. 创建 Python venv（安装 nanobot + 所有 Python 依赖）
-node scripts/build/create-python-venv.mjs
+pnpm pack:create-venv
 
 # 5. 构建 WebUI
 pnpm build:web
@@ -66,8 +67,8 @@ pnpm build:web
 # 6. 开发模式（Vite dev server + Electron 热重载）
 pnpm dev
 
-# 7. 构建完整安装包（一键执行所有步骤）
-node scripts/build/build-all.mjs
+# 7. 构建完整安装包（一键执行上述所有步骤）
+pnpm bundle
 # 输出：dist-release/by-claw-nanobot-Setup-0.1.0-x64.exe
 ```
 
@@ -92,6 +93,8 @@ node scripts/build/build-all.mjs
 | `BYCLAW_PACK_SKIP_CLONE=1` | 跳过克隆（使用现有 `vendor/`） |
 | `BYCLAW_PACK_SKIP_VENV=1` | 跳过 venv 创建与打包 |
 | `BYCLAW_PACK_SKIP_BUNDLE=1` | 跳过 electron-builder |
+| `BYCLAW_NANOBOT_REPO=<url>` | 替换 nanobot 仓库地址（默认 GitHub） |
+| `BYCLAW_NANOBOT_BRANCH=<name>` | 指定克隆分支（默认 `main`） |
 | `BYCLAW_PYTHON_VENV_DIR=<path>` | 使用指定路径的 venv |
 
 ## 升级策略

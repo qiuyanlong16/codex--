@@ -313,23 +313,39 @@ function replaceExeLaunchersWithCmd() {
     }
   }
 
-  // Files to skip (Python runtime and pip — not pip console_script launchers)
-  const skipExes = new Set([
+  // Files to keep (Python runtime — NOT pip-generated launchers)
+  const keepExes = new Set([
     "python.exe", "pythonw.exe", "python3.exe",
+  ]);
+
+  // pip-generated launchers that should be deleted (pip/setuptools were removed
+  // from site-packages, so their .exe launchers are useless and broken)
+  const deleteExes = new Set([
     "pip.exe", "pip3.exe", "pip3.13.exe",
+    "wheel.exe",
   ]);
 
   let replaced = 0;
-  let alreadyCmd = 0;
+  let deleted = 0;
 
   for (const file of fs.readdirSync(scriptsDir)) {
     if (!file.endsWith(".exe")) continue;
-    if (skipExes.has(file.toLowerCase())) continue;
+    const lowerName = file.toLowerCase();
+    if (keepExes.has(lowerName)) continue;
 
     const exeName = file.replace(/\.exe$/i, "");
-    const ep = entryPoints.get(exeName);
     const exePath = path.join(scriptsDir, file);
+
+    // Delete useless launchers (pip, wheel, etc.)
+    if (deleteExes.has(lowerName)) {
+      fs.unlinkSync(exePath);
+      deleted++;
+      console.log(`[pack-venv]   deleted: ${file} (useless launcher)`);
+      continue;
+    }
+
     const cmdPath = path.join(scriptsDir, `${exeName}.cmd`);
+    const ep = entryPoints.get(exeName);
 
     if (ep) {
       // Create .cmd wrapper: python -c "from module import func; func()"
@@ -348,7 +364,7 @@ function replaceExeLaunchersWithCmd() {
     }
   }
 
-  console.log(`[pack-venv] replaced ${replaced} .exe launchers with .cmd wrappers`);
+  console.log(`[pack-venv] replaced ${replaced} .exe launchers with .cmd wrappers, deleted ${deleted} useless launchers`);
 }
 
 // ---------------------------------------------------------------------------

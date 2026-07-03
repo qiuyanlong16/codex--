@@ -45,8 +45,8 @@ function pnpm(...args) {
   run("pnpm", args);
 }
 
-function node(...args) {
-  run("node", args);
+function node(script, opts) {
+  run("node", [script], opts ?? {});
 }
 
 // ── 1. Clone nanobot ─────────────────────────────────────────────
@@ -81,7 +81,9 @@ if (process.env.BYCLAW_PACK_SKIP_VENV !== "1") {
 
 // ── 7. Bundle installer scripts + electron-builder ───────────────
 if (process.env.BYCLAW_PACK_SKIP_BUNDLE !== "1") {
-  node("scripts/build/bundle-cached.mjs");
+  node("scripts/build/bundle-cached.mjs", {
+    env: { BYCLAW_PACK_SKIP_NANOBOT: "1" },
+  });
 } else {
   console.log("\n⊘ Skipping electron-builder (BYCLAW_PACK_SKIP_BUNDLE=1)");
 }

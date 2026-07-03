@@ -1515,7 +1515,7 @@ function Shell({
       >
         {/* Global drag strip for frameless window — only in Electron */}
         {isElectron() ? (
-          <div className="host-drag-region pointer-events-none absolute inset-x-0 top-0 z-30 h-11" />
+          <div className="host-drag-region absolute inset-x-0 top-0 z-30 h-11" />
         ) : null}
         <WindowControls />
         {showHostChrome ? (

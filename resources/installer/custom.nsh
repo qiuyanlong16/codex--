@@ -208,6 +208,27 @@ FunctionEnd
     ; Cleanup manifest
     Delete "$0\.by-claw-nanobot\resources\python-venv_manifest.json"
 
+    ; ── Clean up old pip-generated .exe launchers ──
+    ; Old versions shipped .exe launchers with hardcoded build-machine Python paths.
+    ; New versions use .cmd wrappers with relative paths. Delete leftover .exe files
+    ; (except python.exe/pythonw.exe) so the .cmd wrappers are found instead.
+    ; This is critical because Windows PATHEXT resolves .exe before .cmd.
+    FindFirst $1 $2 "$0\.by-claw-nanobot\resources\python-venv\Scripts\*.exe"
+    StrCmp $2 "" cleanup_exe_done
+    cleanup_exe_loop:
+      ; Skip python runtime executables
+      StrCmp $2 "python.exe" cleanup_exe_next
+      StrCmp $2 "pythonw.exe" cleanup_exe_next
+      StrCmp $2 "python3.exe" cleanup_exe_next
+      ; Delete the old pip-generated launcher
+      Delete "$0\.by-claw-nanobot\resources\python-venv\Scripts\$2"
+    cleanup_exe_next:
+      FindNext $1 $2
+      StrCmp $2 "" cleanup_exe_done
+      Goto cleanup_exe_loop
+    cleanup_exe_done:
+    FindClose $1
+
     ; Verify: python.exe + nanobot module must exist
     ${IfNot} ${FileExists} "$0\.by-claw-nanobot\resources\python-venv\Scripts\python.exe"
       MessageBox MB_OK|MB_ICONSTOP "Python environment extraction failed: python.exe not found. Please retry installation."
@@ -260,6 +281,12 @@ FunctionEnd
   ; Create nanobot.cmd CLI wrapper (lightweight file write)
   ${If} $0 != ""
     nsExec::ExecToLog 'powershell -NoProfile -Command "Set-Content -Path \'$0\.by-claw-nanobot\nanobot.cmd\' -Value \'@echo off`r`nset VENV_DIR=$0\.by-claw-nanobot\resources\python-venv`r`n\"%VENV_DIR%\Scripts\python.exe\" -m nanobot %*\' -Encoding ASCII"'
+
+    ; Add %USERPROFILE%\.by-claw-nanobot to user PATH so `nanobot` command works globally
+    ; Use PowerShell for reliable PATH manipulation
+    nsExec::ExecToLog 'powershell -NoProfile -ExecutionPolicy Bypass -Command "$d = \'$0\.by-claw-nanobot\'; $p = [Environment]::GetEnvironmentVariable(\'PATH\', \'User\'); if ($p -and $p.Contains($d)) { Write-Host \'Already in PATH\' } else { $np = if ($p) { $p + \';\' + $d } else { $d }; [Environment]::SetEnvironmentVariable(\'PATH\', $np, \'User\'); Write-Host \'Added to PATH\' }"'
+    ; Broadcast WM_SETTINGCHANGE to notify other applications
+    SendMessage ${HWND_BROADCAST} ${WM_SETTINGCHANGE} 0 "STR:Environment" /TIMEOUT=5000
   ${EndIf}
 
   ${If} $RunAtStartup == ${BST_CHECKED}
