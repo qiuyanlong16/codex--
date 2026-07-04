@@ -4,14 +4,14 @@
 
 </div>
 
-# by-claw-nanobot
+# codex--
 
-基于 nanobot 的 Electron 桌面产品，将 nanobot AI Agent 打包为开箱即用的 Windows 安装程序。
+基于 nanobot 的 Electron 桌面产品，将 nanobot AI Agent 打包为开箱即用的 **Windows** 与 **macOS** 安装包。
 
 ## 架构
 
 ```
-Electron (by-claw-nanobot)
+Electron (codex--)
 ├── 主进程 (packages/shell)
 │   ├── 启动 nanobot gateway (Python, WebSocket 端口 8765 / 健康检查端口 18790)
 │   ├── 管理 nanobot 进程生命周期
@@ -25,7 +25,7 @@ Electron (by-claw-nanobot)
 - **Shell**: Electron 42 主进程，管理 nanobot 进程的启动、健康检查、停止
 - **WebUI**: 从 nanobot 源码同步的 React 应用，Vite 构建，支持主题切换 / 国际化
 - **Python 后端**: nanobot 以 gateway 模式运行，CORS 允许 Electron 来源
-- **安装包**: NSIS 安装程序，内置 Python venv（用户无需安装 Python）
+- **安装包**: Windows NSIS `.exe` 或 macOS 未签名 `.dmg`，内置 Python venv（用户无需安装 Python）
 
 ## 目录结构
 
@@ -53,7 +53,7 @@ by-claw-nanobot/
 
 ```bash
 # 前提：Node >= 22.16.0，pnpm >= 9.0.0，Python >= 3.12（用于创建 venv）
-# 注意：当前打包流程仅支持 Windows
+# Windows 在 Windows 上构建；macOS 在 macOS 上构建（或使用 GitHub Actions）
 
 # 1. 克隆 nanobot 源码到 vendor/nanobot/
 pnpm pack:clone-nanobot
@@ -75,33 +75,43 @@ pnpm dev
 
 # 7. 构建完整安装包（一键执行上述所有步骤）
 pnpm bundle
-# 输出：dist-release/by-claw-nanobot-Setup-0.1.0-x64.exe
+# 输出：dist-release/codex---Setup-0.1.0-x64.exe（Windows）
+#       dist-release/codex---0.1.0-arm64.dmg（macOS）
 ```
+
+**macOS 未签名安装**：拖入「应用程序」，首次打开请右键 → 打开（或 `xattr -cr /Applications/codex--.app`）。
+
+**平台环境变量**：
+
+| 变量                     | 值                 |
+| ------------------------ | ------------------ |
+| `BYCLAW_TARGET_PLATFORM` | `win32` / `darwin` |
+| `BYCLAW_TARGET_ARCH`     | `x64` / `arm64`    |
 
 ## 构建流水线
 
 完整构建由 `scripts/build/build-all.mjs` 编排，步骤顺序：
 
-| # | 步骤 | 脚本 | 输出 |
-|---|------|------|------|
-| 1 | 克隆 nanobot | `clone-nanobot.mjs` | `vendor/nanobot/` |
-| 2 | 同步 WebUI 源码 | `sync-webui.mjs` | `packages/web/` |
-| 3 | 构建 WebUI | `pnpm build:web` | `packages/web/dist/` |
-| 4 | 构建 Electron shell | `pnpm build:shell` | `packages/shell/dist/` |
-| 5 | 创建 Python venv | `create-python-venv.mjs` | `packages/shell/resources/python-venv/` |
-| 6 | 打包 venv（分卷 tar） | `pack-python-venv.mjs` | `python-venv_*.tar` |
-| 7 | NSIS 安装包 | `bundle-cached.mjs` | `dist-release/*.exe` |
+| #   | 步骤                  | 脚本                     | 输出                                    |
+| --- | --------------------- | ------------------------ | --------------------------------------- |
+| 1   | 克隆 nanobot          | `clone-nanobot.mjs`      | `vendor/nanobot/`                       |
+| 2   | 同步 WebUI 源码       | `sync-webui.mjs`         | `packages/web/`                         |
+| 3   | 构建 WebUI            | `pnpm build:web`         | `packages/web/dist/`                    |
+| 4   | 构建 Electron shell   | `pnpm build:shell`       | `packages/shell/dist/`                  |
+| 5   | 创建 Python venv      | `create-python-venv.mjs` | `packages/shell/resources/python-venv/` |
+| 6   | 打包 venv（分卷 tar） | `pack-python-venv.mjs`   | `python-venv_*.tar`                     |
+| 7   | electron-builder      | `bundle-cached.mjs`      | `dist-release/*.exe` 或 `*.dmg`         |
 
 **跳过特定步骤**（环境变量）：
 
-| 变量 | 说明 |
-|------|------|
-| `BYCLAW_PACK_SKIP_CLONE=1` | 跳过克隆（使用现有 `vendor/`） |
-| `BYCLAW_PACK_SKIP_VENV=1` | 跳过 venv 创建与打包 |
-| `BYCLAW_PACK_SKIP_BUNDLE=1` | 跳过 electron-builder |
-| `BYCLAW_NANOBOT_REPO=<url>` | 替换 nanobot 仓库地址（默认 GitHub） |
-| `BYCLAW_NANOBOT_BRANCH=<name>` | 指定克隆分支（默认 `main`） |
-| `BYCLAW_PYTHON_VENV_DIR=<path>` | 使用指定路径的 venv |
+| 变量                            | 说明                                 |
+| ------------------------------- | ------------------------------------ |
+| `BYCLAW_PACK_SKIP_CLONE=1`      | 跳过克隆（使用现有 `vendor/`）       |
+| `BYCLAW_PACK_SKIP_VENV=1`       | 跳过 venv 创建与打包                 |
+| `BYCLAW_PACK_SKIP_BUNDLE=1`     | 跳过 electron-builder                |
+| `BYCLAW_NANOBOT_REPO=<url>`     | 替换 nanobot 仓库地址（默认 GitHub） |
+| `BYCLAW_NANOBOT_BRANCH=<name>`  | 指定克隆分支（默认 `main`）          |
+| `BYCLAW_PYTHON_VENV_DIR=<path>` | 使用指定路径的 venv                  |
 
 ## 升级策略
 
@@ -117,29 +127,29 @@ pnpm bundle
 
 ## 命名约定
 
-| 维度 | 值 |
-|------|------|
-| 全局名称 | `by-claw-nanobot` |
-| appId | `com.byclaw.nanobot` |
-| npm scope | `@byclaw-nanobot/*` |
-| 用户数据 | `%LOCALAPPDATA%/ByNanobot` |
-| home 目录 | `~/.by-claw-nanobot` |
-| 安装路径 | `C:\Program Files (x86)\ByNanobot\by-claw-nanobot` |
+| 维度                | 值                                       |
+| ------------------- | ---------------------------------------- |
+| 产品名称            | `codex--`                                |
+| appId               | `com.codex--.app`                        |
+| npm scope（内部）   | `@byclaw-nanobot/*`                      |
+| 用户数据            | `%LOCALAPPDATA%/ByNanobot`               |
+| home 目录           | `~/.by-claw-nanobot`                     |
+| 安装路径（Windows） | `C:\Program Files (x86)\Codex--\codex--` |
 
 ## 启动流程与性能
 
 ### 启动时间线（典型值）
 
-| 阶段 | 耗时 | 说明 |
-|------|------|------|
-| Electron 启动 + 窗口创建 | ~50ms | 显示 "Starting nanobot..." loading |
-| Python venv 加载 | ~2.7s | 加载 python.exe + nanobot 模块 |
-| Git store 初始化 | ~0.9s | workspace git repo |
-| Tool 注册 | **~7.7s** | 扫描 CLI apps、加载 19 个 tool 定义（**瓶颈**） |
-| WebSocket + Health endpoint | ~0.6s | 启动 server |
-| healthz / readyz 通过 | ~0.3s | 确认 gateway healthy |
-| 加载 WebUI | ~0.5s | 从 gateway 8766 端口加载 |
-| **总计** | **~12s** | |
+| 阶段                        | 耗时      | 说明                                            |
+| --------------------------- | --------- | ----------------------------------------------- |
+| Electron 启动 + 窗口创建    | ~50ms     | 显示 "Starting nanobot..." loading              |
+| Python venv 加载            | ~2.7s     | 加载 python.exe + nanobot 模块                  |
+| Git store 初始化            | ~0.9s     | workspace git repo                              |
+| Tool 注册                   | **~7.7s** | 扫描 CLI apps、加载 19 个 tool 定义（**瓶颈**） |
+| WebSocket + Health endpoint | ~0.6s     | 启动 server                                     |
+| healthz / readyz 通过       | ~0.3s     | 确认 gateway healthy                            |
+| 加载 WebUI                  | ~0.5s     | 从 gateway 8766 端口加载                        |
+| **总计**                    | **~12s**  |                                                 |
 
 ### 瓶颈分析
 
@@ -159,7 +169,22 @@ pnpm bundle
 3. **预加载 Python 进程**（复杂，收益有限）
    - 在后台预启动 Python 进程，减少感知延迟
 
+## 构建你自己的 Agent
+
+codex-- 内置 nanobot 默认工作区，安装后即可定制本地 Agent：
+
+1. **安装** codex--（Windows `.exe` 或 Mac `.dmg`）
+2. **在设置中配置模型** — 包括 **OpenAI Codex**（`openai_codex` 提供商）
+3. **编辑 Agent 文件**（`~/.nanobot/workspace/`）：
+   - `AGENTS.md` — Agent 行为说明
+   - `SOUL.md` — 性格 / 语气
+   - `USER.md` — 用户资料（首次运行自动填充）
+4. **调整网关配置**：`~/.nanobot/config.json`
+5. **CLI**（可选）：`~/.by-claw-nanobot/nanobot.cmd`（Windows）或 `~/.by-claw-nanobot/bin/nanobot`（Mac）
+
+技能、MCP 工具、子 Agent 可通过 WebUI 设置与 nanobot 配置管理。
+
 ## 仓库
 
 - **主仓库 (GitLab)**: `http://gitlab.lenovohuishang.com/baiying-ai/by-claw-nanobot2.git`
-- **镜像仓库 (GitHub)**: `https://github.com/qiuyanlong16/codex--.git`
+- **GitHub（跨平台开发）**: `https://github.com/qiuyanlong16/codex--.git`

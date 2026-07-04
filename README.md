@@ -4,14 +4,14 @@
 
 </div>
 
-# by-claw-nanobot
+# codex--
 
-An Electron desktop product based on nanobot, packaging the nanobot AI Agent into a ready-to-use Windows installer.
+An Electron desktop product based on nanobot, packaging the nanobot AI Agent into ready-to-use **Windows** and **macOS** installers.
 
 ## Architecture
 
 ```
-Electron (by-claw-nanobot)
+Electron (codex--)
 ├── Main Process (packages/shell)
 │   ├── Starts nanobot gateway (Python, WebSocket port 8765 / health check port 18790)
 │   ├── Manages nanobot process lifecycle
@@ -25,7 +25,7 @@ Electron (by-claw-nanobot)
 - **Shell**: Electron 42 main process — manages nanobot process startup, health checks, and shutdown
 - **WebUI**: React application synced from nanobot source, built with Vite, supports theme switching and i18n
 - **Python Backend**: nanobot runs in gateway mode, with CORS configured to allow Electron origins
-- **Installer**: NSIS installer with a bundled Python venv (no Python installation required for end users)
+- **Installer**: Windows NSIS `.exe` or macOS unsigned `.dmg` with bundled Python venv (no Python install required)
 
 ## Directory Structure
 
@@ -53,7 +53,7 @@ by-claw-nanobot/
 
 ```bash
 # Prerequisites: Node >= 22.16.0, pnpm >= 9.0.0, Python >= 3.12 (for creating venv)
-# Note: The current packaging pipeline only supports Windows
+# Build Windows on Windows; build macOS on macOS (or use GitHub Actions)
 
 # 1. Clone nanobot source to vendor/nanobot/
 pnpm pack:clone-nanobot
@@ -75,33 +75,43 @@ pnpm dev
 
 # 7. Build full installer (one-command — runs all steps above)
 pnpm bundle
-# Output: dist-release/by-claw-nanobot-Setup-0.1.0-x64.exe
+# Output: dist-release/codex---Setup-0.1.0-x64.exe  (Windows)
+#         dist-release/codex---0.1.0-arm64.dmg     (macOS)
 ```
+
+**macOS unsigned install:** drag to Applications, then Right-click → Open (or `xattr -cr /Applications/codex--.app`).
+
+**Platform env vars** (for `bundle-cached.mjs`):
+
+| Variable                 | Values                                                     |
+| ------------------------ | ---------------------------------------------------------- |
+| `BYCLAW_TARGET_PLATFORM` | `win32` (default on Windows) / `darwin` (default on macOS) |
+| `BYCLAW_TARGET_ARCH`     | `x64` / `arm64`                                            |
 
 ## Build Pipeline
 
 The full build is orchestrated by `scripts/build/build-all.mjs`, in the following order:
 
-| # | Step | Script | Output |
-|---|------|--------|--------|
-| 1 | Clone nanobot | `clone-nanobot.mjs` | `vendor/nanobot/` |
-| 2 | Sync WebUI source | `sync-webui.mjs` | `packages/web/` |
-| 3 | Build WebUI | `pnpm build:web` | `packages/web/dist/` |
-| 4 | Build Electron shell | `pnpm build:shell` | `packages/shell/dist/` |
-| 5 | Create Python venv | `create-python-venv.mjs` | `packages/shell/resources/python-venv/` |
-| 6 | Pack venv (split tar) | `pack-python-venv.mjs` | `python-venv_*.tar` |
-| 7 | NSIS installer | `bundle-cached.mjs` | `dist-release/*.exe` |
+| #   | Step                  | Script                   | Output                                  |
+| --- | --------------------- | ------------------------ | --------------------------------------- |
+| 1   | Clone nanobot         | `clone-nanobot.mjs`      | `vendor/nanobot/`                       |
+| 2   | Sync WebUI source     | `sync-webui.mjs`         | `packages/web/`                         |
+| 3   | Build WebUI           | `pnpm build:web`         | `packages/web/dist/`                    |
+| 4   | Build Electron shell  | `pnpm build:shell`       | `packages/shell/dist/`                  |
+| 5   | Create Python venv    | `create-python-venv.mjs` | `packages/shell/resources/python-venv/` |
+| 6   | Pack venv (split tar) | `pack-python-venv.mjs`   | `python-venv_*.tar`                     |
+| 7   | electron-builder      | `bundle-cached.mjs`      | `dist-release/*.exe` or `*.dmg`         |
 
 **Skip specific steps** (environment variables):
 
-| Variable | Description |
-|----------|-------------|
-| `BYCLAW_PACK_SKIP_CLONE=1` | Skip cloning (use existing `vendor/`) |
-| `BYCLAW_PACK_SKIP_VENV=1` | Skip venv creation and packing |
-| `BYCLAW_PACK_SKIP_BUNDLE=1` | Skip electron-builder |
-| `BYCLAW_NANOBOT_REPO=<url>` | Override nanobot repo URL (defaults to GitHub) |
-| `BYCLAW_NANOBOT_BRANCH=<name>` | Specify branch to clone (defaults to `main`) |
-| `BYCLAW_PYTHON_VENV_DIR=<path>` | Use a venv at the specified path |
+| Variable                        | Description                                    |
+| ------------------------------- | ---------------------------------------------- |
+| `BYCLAW_PACK_SKIP_CLONE=1`      | Skip cloning (use existing `vendor/`)          |
+| `BYCLAW_PACK_SKIP_VENV=1`       | Skip venv creation and packing                 |
+| `BYCLAW_PACK_SKIP_BUNDLE=1`     | Skip electron-builder                          |
+| `BYCLAW_NANOBOT_REPO=<url>`     | Override nanobot repo URL (defaults to GitHub) |
+| `BYCLAW_NANOBOT_BRANCH=<name>`  | Specify branch to clone (defaults to `main`)   |
+| `BYCLAW_PYTHON_VENV_DIR=<path>` | Use a venv at the specified path               |
 
 ## Upgrade Strategy
 
@@ -117,29 +127,29 @@ The full build is orchestrated by `scripts/build/build-all.mjs`, in the followin
 
 ## Naming Conventions
 
-| Dimension | Value |
-|-----------|-------|
-| Global name | `by-claw-nanobot` |
-| appId | `com.byclaw.nanobot` |
-| npm scope | `@byclaw-nanobot/*` |
-| User data | `%LOCALAPPDATA%/ByNanobot` |
-| Home directory | `~/.by-claw-nanobot` |
-| Install path | `C:\Program Files (x86)\ByNanobot\by-claw-nanobot` |
+| Dimension              | Value                                    |
+| ---------------------- | ---------------------------------------- |
+| Product name           | `codex--`                                |
+| appId                  | `com.codex--.app`                        |
+| npm scope (internal)   | `@byclaw-nanobot/*`                      |
+| User data              | `%LOCALAPPDATA%/ByNanobot`               |
+| Home directory         | `~/.by-claw-nanobot`                     |
+| Install path (Windows) | `C:\Program Files (x86)\Codex--\codex--` |
 
 ## Startup Flow & Performance
 
 ### Startup Timeline (Typical Values)
 
-| Phase | Duration | Notes |
-|-------|----------|-------|
-| Electron launch + window creation | ~50ms | Shows "Starting nanobot..." loading screen |
-| Python venv loading | ~2.7s | Loads python.exe + nanobot modules |
-| Git store initialization | ~0.9s | Workspace git repo |
-| Tool registration | **~7.7s** | Scans CLI apps, loads 19 tool definitions (**bottleneck**) |
-| WebSocket + health endpoint | ~0.6s | Starts server |
-| healthz / readyz pass | ~0.3s | Confirms gateway is healthy |
-| Load WebUI | ~0.5s | Loads from gateway port 8766 |
-| **Total** | **~12s** | |
+| Phase                             | Duration  | Notes                                                      |
+| --------------------------------- | --------- | ---------------------------------------------------------- |
+| Electron launch + window creation | ~50ms     | Shows "Starting nanobot..." loading screen                 |
+| Python venv loading               | ~2.7s     | Loads python.exe + nanobot modules                         |
+| Git store initialization          | ~0.9s     | Workspace git repo                                         |
+| Tool registration                 | **~7.7s** | Scans CLI apps, loads 19 tool definitions (**bottleneck**) |
+| WebSocket + health endpoint       | ~0.6s     | Starts server                                              |
+| healthz / readyz pass             | ~0.3s     | Confirms gateway is healthy                                |
+| Load WebUI                        | ~0.5s     | Loads from gateway port 8766                               |
+| **Total**                         | **~12s**  |                                                            |
 
 ### Bottleneck Analysis
 
@@ -159,7 +169,22 @@ The main bottleneck is **tool registration in the nanobot Python side** (~7.7s),
 3. **Preload Python process** (complex, limited benefit)
    - Pre-launch Python process in background to reduce perceived latency
 
+## Build Your Own Agent
+
+codex-- ships with a default nanobot workspace so you can customize your local agent immediately:
+
+1. **Install** codex-- (Windows `.exe` or Mac `.dmg`)
+2. **Configure models** in Settings — including **OpenAI Codex** (`openai_codex` provider)
+3. **Edit agent files** under `~/.nanobot/workspace/`:
+   - `AGENTS.md` — agent behavior instructions
+   - `SOUL.md` — personality / tone
+   - `USER.md` — your profile (auto-filled on first run)
+4. **Adjust gateway config** at `~/.nanobot/config.json` (seeded from `resources/nanobot-config-template/`)
+5. **Use CLI** (optional): `~/.by-claw-nanobot/nanobot.cmd` (Windows) or `~/.by-claw-nanobot/bin/nanobot` (Mac)
+
+Skills, MCP tools, and subagents are configured through the WebUI Settings panel and nanobot config.
+
 ## Repositories
 
 - **Primary (GitLab)**: `http://gitlab.lenovohuishang.com/baiying-ai/by-claw-nanobot2.git`
-- **Mirror (GitHub)**: `https://github.com/qiuyanlong16/codex--.git`
+- **GitHub (cross-platform)**: `https://github.com/qiuyanlong16/codex--.git`

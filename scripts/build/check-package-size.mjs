@@ -26,7 +26,7 @@ async function main() {
   const installers = [];
   for (const entry of entries) {
     if (!entry.isFile()) continue;
-    if (!/\.exe$/i.test(entry.name)) continue;
+    if (!/\.(exe|dmg)$/i.test(entry.name)) continue;
     const full = path.join(releaseDir, entry.name);
     installers.push({ name: entry.name, size: (await fs.stat(full)).size });
   }

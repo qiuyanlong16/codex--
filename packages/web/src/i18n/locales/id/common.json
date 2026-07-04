@@ -58,6 +58,10 @@
     "automations": "Otomasi",
     "skills": {
       "title": "Skill"
+    },
+    "themeToggle": {
+      "light": "Light mode",
+      "dark": "Dark mode"
     }
   },
   "settings": {
@@ -1050,5 +1054,11 @@
       "usePath": "Use Path",
       "absolutePathRequired": "Enter an absolute folder path on this machine."
     }
+  },
+  "windowControls": {
+    "minimize": "Minimize",
+    "maximize": "Maximize",
+    "restore": "Restore",
+    "close": "Close"
   }
 }
