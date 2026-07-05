@@ -22,6 +22,7 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { findSitePackagesDir } from "./lib/platform.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const VENDOR_NANOBOT =
@@ -218,7 +219,7 @@ console.log("[create-python-venv] nanobot CLI OK");
 // ---------------------------------------------------------------------------
 
 console.log("[create-python-venv] cleaning venv...");
-const venvSitePackages = path.join(VENV_DIR, process.platform === "win32" ? "Lib" : "lib", "site-packages");
+const venvSitePackages = findSitePackagesDir(VENV_DIR);
 
 // Remove all __pycache__ directories
 let cacheCount = 0;
@@ -238,35 +239,39 @@ function removePycache(dir) {
 removePycache(VENV_DIR);
 console.log(`[create-python-venv]   removed ${cacheCount} __pycache__ dirs`);
 
-// Remove pip and setuptools (not needed at runtime)
-for (const pkg of ["pip", "setuptools"]) {
-  const pkgDir = path.join(venvSitePackages, pkg);
-  if (fs.existsSync(pkgDir)) {
-    fs.rmSync(pkgDir, { recursive: true, force: true });
-  }
-  // Also remove dist-info
-  for (const entry of fs.readdirSync(venvSitePackages)) {
-    if (entry.startsWith(`${pkg}-`) && entry.endsWith(".dist-info")) {
-      fs.rmSync(path.join(venvSitePackages, entry), { recursive: true, force: true });
+if (venvSitePackages) {
+  // Remove pip and setuptools (not needed at runtime)
+  for (const pkg of ["pip", "setuptools"]) {
+    const pkgDir = path.join(venvSitePackages, pkg);
+    if (fs.existsSync(pkgDir)) {
+      fs.rmSync(pkgDir, { recursive: true, force: true });
     }
-  }
-}
-console.log("[create-python-venv]   removed pip + setuptools");
-
-// Remove test directories from site-packages
-let testCount = 0;
-for (const entry of fs.readdirSync(venvSitePackages, { withFileTypes: true })) {
-  if (entry.isDirectory()) {
-    const pkgDir = path.join(venvSitePackages, entry.name);
-    for (const sub of fs.readdirSync(pkgDir, { withFileTypes: true })) {
-      if (sub.isDirectory() && (sub.name === "tests" || sub.name === "test")) {
-        fs.rmSync(path.join(pkgDir, sub.name), { recursive: true, force: true });
-        testCount++;
+    // Also remove dist-info
+    for (const entry of fs.readdirSync(venvSitePackages)) {
+      if (entry.startsWith(`${pkg}-`) && entry.endsWith(".dist-info")) {
+        fs.rmSync(path.join(venvSitePackages, entry), { recursive: true, force: true });
       }
     }
   }
+  console.log("[create-python-venv]   removed pip + setuptools");
+
+  // Remove test directories from site-packages
+  let testCount = 0;
+  for (const entry of fs.readdirSync(venvSitePackages, { withFileTypes: true })) {
+    if (entry.isDirectory()) {
+      const pkgDir = path.join(venvSitePackages, entry.name);
+      for (const sub of fs.readdirSync(pkgDir, { withFileTypes: true })) {
+        if (sub.isDirectory() && (sub.name === "tests" || sub.name === "test")) {
+          fs.rmSync(path.join(pkgDir, sub.name), { recursive: true, force: true });
+          testCount++;
+        }
+      }
+    }
+  }
+  console.log(`[create-python-venv]   removed ${testCount} test dirs`);
+} else {
+  console.warn("[create-python-venv] site-packages not found, skipping pip/setuptools cleanup");
 }
-console.log(`[create-python-venv]   removed ${testCount} test dirs`);
 
 // Remove remaining .pyc files
 let pycCount = 0;
