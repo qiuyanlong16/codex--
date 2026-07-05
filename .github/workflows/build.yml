@@ -39,7 +39,16 @@ jobs:
         with:
           python-version: "3.12"
       - run: pnpm install --frozen-lockfile
-      - run: pnpm bundle
+      - run: node scripts/build/clone-nanobot.mjs
+      - run: node scripts/build/sync-webui.mjs
+      - run: pnpm install --no-frozen-lockfile
+      - run: pnpm build:web
+      - run: pnpm build:shell
+      - run: node scripts/build/create-python-venv.mjs
+      - run: node scripts/build/pack-python-venv.mjs
+      - run: node scripts/build/bundle-cached.mjs
+        env:
+          BYCLAW_PACK_SKIP_NANOBOT: "1"
       - uses: actions/upload-artifact@v4
         with:
           name: codex---windows-x64
@@ -65,7 +74,16 @@ jobs:
         with:
           python-version: "3.12"
       - run: pnpm install --frozen-lockfile
-      - run: pnpm bundle
+      - run: node scripts/build/clone-nanobot.mjs
+      - run: node scripts/build/sync-webui.mjs
+      - run: pnpm install --no-frozen-lockfile
+      - run: pnpm build:web
+      - run: pnpm build:shell
+      - run: node scripts/build/create-python-venv.mjs
+      - run: node scripts/build/pack-python-venv.mjs
+      - run: node scripts/build/bundle-cached.mjs
+        env:
+          BYCLAW_PACK_SKIP_NANOBOT: "1"
       - uses: actions/upload-artifact@v4
         with:
           name: codex---macos-arm64
