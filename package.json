@@ -33,6 +33,7 @@
     "electron-builder": "^26.15.3",
     "esbuild": "^0.28.1",
     "lint-staged": "^17.0.8",
-    "prettier": "^3.9.4"
+    "prettier": "^3.9.4",
+    "tar": "7.4.3"
   }
 }

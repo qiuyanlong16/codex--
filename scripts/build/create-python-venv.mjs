@@ -152,6 +152,7 @@ if (!fs.existsSync(pyInVenv)) {
 
 console.log("[create-python-venv] upgrading pip...");
 run(pyInVenv, ["-m", "pip", "install", "--upgrade", "pip", "setuptools", "wheel"], {
+  stdio: process.env.CI === "true" ? "inherit" : undefined,
   env: { PIP_DISABLE_PIP_VERSION_CHECK: "1" },
 });
 
@@ -166,6 +167,7 @@ console.log(`[create-python-venv] installing nanobot from ${VENDOR_NANOBOT}...`)
 // Install with ALL optional deps to ensure the gateway works
 // The [api] extra includes aiohttp for the gateway HTTP server
 run(pyInVenv, ["-m", "pip", "install", `${VENDOR_NANOBOT}[api]`], {
+  stdio: process.env.CI === "true" ? "inherit" : undefined,
   env: {
     PIP_DISABLE_PIP_VERSION_CHECK: "1",
     // Avoid building from source when possible
