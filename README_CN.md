@@ -81,6 +81,35 @@ pnpm bundle
 
 **macOS 未签名安装**：拖入「应用程序」，首次打开请右键 → 打开（或 `xattr -cr /Applications/codex--.app`）。
 
+## ⚠️ 跨平台打包（重要）
+
+**Windows 安装包只能在 Windows 上构建；macOS 安装包只能在 macOS 上构建。** 两个平台的 Python 运行时完全独立，**不可混用**。
+
+| 平台    | 构建环境                        | 产物          | Python 运行时策略                                                                                  |
+| ------- | ------------------------------- | ------------- | -------------------------------------------------------------------------------------------------- |
+| Windows | `windows-latest` 或本机 Windows | `.exe` (NSIS) | 嵌入 `python.exe` + DLL + `.pyd`，使用 `python313._pth` 免注册表                                   |
+| macOS   | `macos-latest` 或本机 Mac       | `.dmg`        | 嵌入 `Python.app` + `libpython` dylib，用 `install_name_tool` 去除对系统 `Python.framework` 的依赖 |
+
+**禁止的操作：**
+
+- ❌ 在 Windows 上构建 `.dmg`，或在 Mac 上构建 `.exe`
+- ❌ 把 Windows 构建的 `python-venv_*.tar` 复制到 Mac 包（或反向操作）
+- ❌ 在没有 Python 3.12 框架的 Mac 上直接运行未修复的旧版 venv
+
+**CI：** 推送到 `feat/cross-platform` / `main` / `master` 会触发 GitHub Actions，分别并行构建 Windows 与 macOS 产物（见 `.github/workflows/build.yml`）。
+
+**本地等效命令：**
+
+```bash
+# Windows
+set BYCLAW_TARGET_PLATFORM=win32
+pnpm bundle
+
+# macOS
+export BYCLAW_TARGET_PLATFORM=darwin
+pnpm bundle
+```
+
 **平台环境变量**：
 
 | 变量                     | 值                 |
@@ -120,10 +149,28 @@ pnpm bundle
 
 ## 诊断工具
 
-`scripts/diag/` 提供 Windows 环境诊断与修复脚本：
+`scripts/diag/` 提供环境诊断与修复脚本：
 
-- `nanobot-startup-diagnostic.ps1` — 收集启动诊断信息
-- `nanobot-fix-venv.ps1` — 修复 Python venv 问题
+- `nanobot-startup-diagnostic.ps1` — 收集启动诊断信息（Windows）
+- `nanobot-fix-venv.ps1` — 修复 Python venv 问题（Windows）
+- `nanobot-fix-venv-mac.mjs` — 修复 macOS venv 对系统 `Python.framework` 的依赖（见下方说明）
+
+### macOS venv 启动失败
+
+**症状**：日志出现 `Library not loaded: /Library/Frameworks/Python.framework/Versions/3.12/...`
+
+**原因**：旧版安装包内的 `python-venv_*.tar` 未嵌入完整 Python 运行时。若执行 `rm -rf ~/.by-claw-nanobot/resources/python-venv`，应用会从**旧安装包**重新解压，问题会复现。
+
+**解决方案（二选一）**：
+
+1. **推荐**：安装 GitHub Actions 新构建的 Mac `.dmg`（含修复后的 venv 与 `python-darwin-runtime`）
+2. **临时修复**（不重新打包）：在 Mac 上运行
+   ```bash
+   node scripts/diag/nanobot-fix-venv-mac.mjs
+   ```
+   需要本机有 Python 3.12 框架，或已解压的 `/tmp/python312-fw/Versions/3.12`
+
+**注意**：在换新 `.dmg` 之前，不要随意删除 `~/.by-claw-nanobot/resources/python-venv`。
 
 ## 命名约定
 

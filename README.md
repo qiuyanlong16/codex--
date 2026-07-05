@@ -81,6 +81,35 @@ pnpm bundle
 
 **macOS unsigned install:** drag to Applications, then Right-click → Open (or `xattr -cr /Applications/codex--.app`).
 
+## ⚠️ Cross-Platform Packaging (Important)
+
+**Windows installers must be built on Windows; macOS installers must be built on macOS.** Each platform ships its own self-contained Python runtime — **they are not interchangeable**.
+
+| Platform | Build environment                 | Artifact      | Python runtime strategy                                                                                        |
+| -------- | --------------------------------- | ------------- | -------------------------------------------------------------------------------------------------------------- |
+| Windows  | `windows-latest` or local Windows | `.exe` (NSIS) | Embeds `python.exe` + DLLs + `.pyd`, uses `python313._pth` (no registry)                                       |
+| macOS    | `macos-latest` or local Mac       | `.dmg`        | Embeds `Python.app` + `libpython` dylib, rewrites deps with `install_name_tool` (no system `Python.framework`) |
+
+**Do not:**
+
+- ❌ Build `.dmg` on Windows, or `.exe` on macOS
+- ❌ Copy Windows `python-venv_*.tar` shards into a Mac build (or vice versa)
+- ❌ Expect an old Mac venv to work without the bundled `Python.app` runtime
+
+**CI:** Pushes to `feat/cross-platform` / `main` / `master` trigger GitHub Actions with parallel Windows and macOS jobs (see `.github/workflows/build.yml`).
+
+**Local equivalent:**
+
+```bash
+# Windows
+set BYCLAW_TARGET_PLATFORM=win32
+pnpm bundle
+
+# macOS
+export BYCLAW_TARGET_PLATFORM=darwin
+pnpm bundle
+```
+
 **Platform env vars** (for `bundle-cached.mjs`):
 
 | Variable                 | Values                                                     |
@@ -120,10 +149,28 @@ The full build is orchestrated by `scripts/build/build-all.mjs`, in the followin
 
 ## Diagnostic Tools
 
-`scripts/diag/` provides Windows environment diagnostic and repair scripts:
+`scripts/diag/` provides environment diagnostic and repair scripts:
 
-- `nanobot-startup-diagnostic.ps1` — Collects startup diagnostics
-- `nanobot-fix-venv.ps1` — Fixes Python venv issues
+- `nanobot-startup-diagnostic.ps1` — Collect startup diagnostics (Windows)
+- `nanobot-fix-venv.ps1` — Fix Python venv issues (Windows)
+- `nanobot-fix-venv-mac.mjs` — Fix macOS venv dependency on system `Python.framework` (see below)
+
+### macOS venv startup failure
+
+**Symptom:** logs show `Library not loaded: /Library/Frameworks/Python.framework/Versions/3.12/...`
+
+**Cause:** Older installers shipped `python-venv_*.tar` shards without a fully embedded Python runtime. Running `rm -rf ~/.by-claw-nanobot/resources/python-venv` makes the app re-extract from the **old app bundle**, so the problem returns.
+
+**Fix (pick one):**
+
+1. **Recommended:** Install a new Mac `.dmg` from GitHub Actions (includes fixed venv + `python-darwin-runtime`)
+2. **Workaround (no rebuild):** On Mac, run
+   ```bash
+   node scripts/diag/nanobot-fix-venv-mac.mjs
+   ```
+   Requires Python 3.12 framework locally, or an extracted copy at `/tmp/python312-fw/Versions/3.12`
+
+**Note:** Until you install a new `.dmg`, avoid deleting `~/.by-claw-nanobot/resources/python-venv`.
 
 ## Naming Conventions
 

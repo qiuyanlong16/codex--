@@ -31,6 +31,11 @@ import {
   sitePackagesTarPrefix,
   venvPythonExecutable,
 } from "./lib/platform.mjs";
+import {
+  makeMacVenvPortable,
+  resolveMacPythonBasePrefix,
+  stageDarwinPythonRuntime,
+} from "./lib/macos-venv-portable.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const VENV_DIR = path.join(ROOT, "packages", "shell", "resources", "python-venv");
@@ -390,20 +395,14 @@ function makeMacVenvSelfContained() {
     process.exit(1);
   }
 
-  const cfgContent = fs.readFileSync(pyvenvCfg, "utf8");
-  const homeMatch = cfgContent.match(/^home\s*=\s*(.+)$/m);
-  if (!homeMatch) {
-    console.error("[pack-venv] ERROR: no 'home' in pyvenv.cfg");
-    process.exit(1);
-  }
-
-  const baseBin = homeMatch[1].trim();
-  const basePrefix = path.dirname(baseBin);
   const pyVersion = detectPythonLibVersion(VENV_DIR);
   if (!pyVersion) {
     console.error("[pack-venv] ERROR: could not detect python lib version in venv");
     process.exit(1);
   }
+
+  const basePrefix = resolveMacPythonBasePrefix(pyvenvCfg);
+  console.log(`[pack-venv] macOS base prefix: ${basePrefix}`);
 
   const binDir = path.join(VENV_DIR, "bin");
   if (!fs.existsSync(binDir)) {
@@ -426,7 +425,6 @@ function makeMacVenvSelfContained() {
     console.error("[pack-venv] ERROR: could not resolve venv python binary", err);
     process.exit(1);
   }
-  console.log(`[pack-venv] macOS base prefix: ${basePrefix}`);
   console.log(`[pack-venv] macOS real python: ${realPython}`);
 
   for (const name of new Set([versionedName, "python3", "python"])) {
@@ -435,23 +433,6 @@ function makeMacVenvSelfContained() {
     fs.chmodSync(dest, 0o755);
   }
   console.log("[pack-venv] materialized python binaries in bin/");
-
-  const venvLibDir = path.join(VENV_DIR, "lib");
-  const baseLibDir = path.join(basePrefix, "lib");
-  fs.mkdirSync(venvLibDir, { recursive: true });
-  let dylibCount = 0;
-  if (fs.existsSync(baseLibDir)) {
-    for (const entry of fs.readdirSync(baseLibDir)) {
-      if (!entry.endsWith(".dylib")) continue;
-      fs.copyFileSync(path.join(baseLibDir, entry), path.join(venvLibDir, entry));
-      dylibCount++;
-    }
-  }
-  if (dylibCount === 0) {
-    console.error("[pack-venv] ERROR: no libpython dylibs found in", baseLibDir);
-    process.exit(1);
-  }
-  console.log(`[pack-venv] copied ${dylibCount} dylib(s) into lib/`);
 
   const baseLibPy = path.join(basePrefix, "lib", pyVersion);
   const venvLibPy = path.join(VENV_DIR, "lib", pyVersion);
@@ -474,33 +455,11 @@ function makeMacVenvSelfContained() {
     copyDirSync(baseIncludePy, venvIncludePy);
   }
 
+  makeMacVenvPortable(VENV_DIR, pyVersion, basePrefix);
   fixPortablePyvenvCfg(VENV_DIR);
-
-  if (process.platform === "darwin") {
-    for (const name of fs.readdirSync(binDir)) {
-      const binPath = path.join(binDir, name);
-      if (!fs.statSync(binPath).isFile()) continue;
-      fs.chmodSync(binPath, 0o755);
-      spawnSync("codesign", ["-s", "-", "-f", binPath], { stdio: "pipe" });
-    }
-  }
-
-  const py = venvPythonExecutable(VENV_DIR);
-  const versionProbe = spawnSync(py, ["--version"], { encoding: "utf8", stdio: "pipe" });
-  if (versionProbe.status !== 0) {
-    const detail = (versionProbe.stderr || versionProbe.stdout || "").toString().trim();
-    console.error("[pack-venv] ERROR: bundled python --version failed:", detail);
-    process.exit(1);
-  }
-  console.log(`[pack-venv] portable python OK: ${(versionProbe.stdout || versionProbe.stderr || "").toString().trim()}`);
-
-  const importProbe = spawnSync(py, ["-c", "import nanobot"], { encoding: "utf8", stdio: "pipe" });
-  if (importProbe.status !== 0) {
-    const detail = (importProbe.stderr || importProbe.stdout || "").toString().trim();
-    console.error("[pack-venv] ERROR: bundled python cannot import nanobot:", detail);
-    process.exit(1);
-  }
   console.log("[pack-venv] venv is now self-contained on macOS");
+
+  stageDarwinPythonRuntime(VENV_DIR, RESOURCES_DIR);
 }
 
 // ---------------------------------------------------------------------------
@@ -692,7 +651,10 @@ console.log(`[pack-venv] venv: ${VENV_DIR} (${(getDirSize(VENV_DIR) / 1024 / 102
 console.log(`[pack-venv] tar:  ${tarExe}`);
 console.log(`[pack-venv] target platform: ${process.env.BYCLAW_TARGET_PLATFORM ?? process.platform}`);
 
+const darwinRuntimeDir = path.join(RESOURCES_DIR, "python-darwin-runtime");
 if (isWindowsTarget()) {
+  // Never ship macOS repair/runtime artifacts in a Windows build.
+  fs.rmSync(darwinRuntimeDir, { recursive: true, force: true });
   makeVenvSelfContained();
   replaceExeLaunchersWithCmd();
 } else {

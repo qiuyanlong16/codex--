@@ -6,6 +6,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { app } from "electron";
 import { resolveResourcesPath, getByclawHomeDir } from "../core/platform-paths.js";
 import { venvPythonPath, resolveSystemTarCandidates, fixPortablePyvenvCfg } from "../core/venv-paths.js";
+import { ensureMacVenvPortable } from "../core/mac-venv-portable.js";
 import { mainLog } from "../core/logging/main-logger.js";
 
 export type NanobotBundleLayout = "packaged" | "dev-checkout";
@@ -145,6 +146,42 @@ function devPythonOverride(): string | null {
  * directory (~/.by-claw-nanobot/resources/python-venv) using the system
  * tar.exe directly — no child-process unpack script, no bundled JS tar module.
  */
+/** Run tar.exe asynchronously (non-blocking). */
+function repairRuntimeDir(resourcesPath: string | null): string | null {
+  if (!resourcesPath) return null;
+  const dir = path.join(resourcesPath, "python-darwin-runtime");
+  return fs.existsSync(dir) ? dir : null;
+}
+
+async function finalizeExtractedVenv(fallbackVenv: string, fallbackPython: string): Promise<void> {
+  fixPortablePyvenvCfg(fallbackVenv);
+  if (process.platform === "darwin") {
+    const resourcesPath = resolveResourcesPath();
+    try {
+      ensureMacVenvPortable(fallbackVenv, repairRuntimeDir(resourcesPath));
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err);
+      mainLog.error("nanobot", "macOS venv portability repair failed", { detail });
+      throw err instanceof Error ? err : new Error(detail);
+    }
+  }
+  const probe = await runCommandAsync(fallbackPython, ["--version"]);
+  if (!probe.ok) {
+    mainLog.error("nanobot", "venv python probe failed", {
+      python: fallbackPython,
+      stderr: probe.stderr,
+      stdout: probe.stdout,
+    });
+    throw new Error(
+      `venv_python_broken: cannot execute ${fallbackPython}${probe.stderr ? `: ${probe.stderr.trim()}` : ""}`,
+    );
+  }
+  mainLog.info("nanobot", "venv ready", {
+    fallbackVenv,
+    pythonVersion: probe.stdout.trim(),
+  });
+}
+
 export async function ensureVenvExtracted(): Promise<void> {
   const resourcesPath = resolveResourcesPath();
   if (!resourcesPath) return;
@@ -155,8 +192,22 @@ export async function ensureVenvExtracted(): Promise<void> {
   const fallbackVenv = path.join(fallbackResources, "python-venv");
   const fallbackPython = venvPythonPath(fallbackVenv);
 
-  // Already extracted?
-  if (fs.existsSync(fallbackPython)) return;
+  // Already extracted — still verify/repair (older builds shipped broken macOS venvs).
+  if (fs.existsSync(fallbackPython)) {
+    const probe = await runCommandAsync(fallbackPython, ["--version"]);
+    if (probe.ok) return;
+    mainLog.warn("nanobot", "existing venv python is broken; attempting macOS repair", {
+      python: fallbackPython,
+      stderr: probe.stderr.trim(),
+    });
+    if (process.platform === "darwin") {
+      await finalizeExtractedVenv(fallbackVenv, fallbackPython);
+      return;
+    }
+    throw new Error(
+      `venv_python_broken: cannot execute ${fallbackPython}${probe.stderr ? `: ${probe.stderr.trim()}` : ""}`,
+    );
+  }
 
   // Check for tar shards in the packaged resources/
   const manifestPath = path.join(resourcesPath, "python-venv_manifest.json");
@@ -224,28 +275,7 @@ export async function ensureVenvExtracted(): Promise<void> {
     try { fs.unlinkSync(path.join(fallbackResources, "python-venv_manifest.json")); } catch { /* ignore */ }
 
     if (fs.existsSync(fallbackPython)) {
-      fixPortablePyvenvCfg(fallbackVenv);
-      if (process.platform === "darwin") {
-        try {
-          spawnSync("xattr", ["-cr", fallbackVenv], { stdio: "pipe" });
-          spawnSync("codesign", ["-s", "-", "-f", fallbackPython], { stdio: "pipe" });
-        } catch {
-          /* best-effort */
-        }
-      }
-      const probe = await runCommandAsync(fallbackPython, ["--version"]);
-      if (!probe.ok) {
-        mainLog.error("nanobot", "venv python probe failed", {
-          python: fallbackPython,
-          stderr: probe.stderr,
-          stdout: probe.stdout,
-        });
-        throw new Error(`venv_python_broken: cannot execute ${fallbackPython}${probe.stderr ? `: ${probe.stderr.trim()}` : ""}`);
-      }
-      mainLog.info("nanobot", "venv extraction complete", {
-        fallbackVenv,
-        pythonVersion: probe.stdout.trim(),
-      });
+      await finalizeExtractedVenv(fallbackVenv, fallbackPython);
     } else {
       // List directory contents to help diagnose what went wrong
       let dirContents: string[] = [];

@@ -115,7 +115,10 @@ function assertBundleInputs() {
     );
   }
   if (targetPlatform === "darwin") {
-    required.push("resources/icons/icon.icns");
+    required.push(
+      "resources/icons/icon.icns",
+      "packages/shell/resources/python-darwin-runtime/manifest.json",
+    );
   }
   for (const rel of required) {
     const full = path.join(repoRoot, rel);
