@@ -33,7 +33,10 @@
     "electron-builder": "^26.15.3",
     "esbuild": "^0.28.1",
     "lint-staged": "^17.0.8",
+    "png-to-ico": "^3.0.1",
+    "png2icons": "^2.0.1",
     "prettier": "^3.9.4",
+    "sharp": "^0.35.3",
     "tar": "7.4.3"
   }
 }

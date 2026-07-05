@@ -7,6 +7,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { getElectronApi } from "@/lib/electron-host";
 
 type Theme = "light" | "dark";
 const STORAGE_KEY = "nanobot-webui.theme";
@@ -27,6 +28,12 @@ function applyTheme(theme: Theme): void {
   else root.classList.remove("dark");
 }
 
+function syncNativeTitleBar(theme: Theme): void {
+  const api = getElectronApi();
+  if (!api?.app.setTitleBarTheme) return;
+  void api.app.setTitleBarTheme({ mode: theme });
+}
+
 export function useTheme(): {
   theme: Theme;
   toggle: () => void;
@@ -45,6 +52,7 @@ export function useTheme(): {
 
   useEffect(() => {
     applyTheme(theme);
+    syncNativeTitleBar(theme);
     try {
       localStorage.setItem(STORAGE_KEY, theme);
     } catch {

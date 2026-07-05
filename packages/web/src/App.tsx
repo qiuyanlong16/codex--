@@ -6,7 +6,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { Copy, Minus, PanelLeft, Square } from "lucide-react";
+import { Moon, PanelLeft, Sun } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { DeleteConfirm } from "@/components/DeleteConfirm";
 import { RenameChatDialog } from "@/components/RenameChatDialog";
@@ -20,6 +20,7 @@ import { useSessions } from "@/hooks/useSessions";
 import { useDeferredTitleRefresh } from "@/hooks/useDeferredTitleRefresh";
 import { useSidebarState } from "@/hooks/useSidebarState";
 import { useSkills } from "@/hooks/useSkills";
+import { useNativeBootGate } from "@/hooks/useNativeBootGate";
 import { ThemeProvider, useTheme } from "@/hooks/useTheme";
 import { cn } from "@/lib/utils";
 import {
@@ -295,78 +296,6 @@ function normalizeWorkspaceScope(scope: WorkspaceScopePayload): WorkspaceScopePa
   };
 }
 
-/**
- * Detect Electron via user-agent — reliable regardless of preload timing.
- */
-function isElectron(): boolean {
-  if (typeof navigator === "undefined") return false;
-  return /electron/i.test(navigator.userAgent);
-}
-
-/**
- * Native window control buttons (minimize / maximize-restore / close).
- * Rendered whenever running inside Electron — independent of runtime surface.
- */
-function WindowControls() {
-  const [maximized, setMaximized] = useState(false);
-
-  useEffect(() => {
-    if (!isElectron()) return;
-    const api = window.electronAPI?.app;
-    if (!api) return;
-    void api.isMaximized().then((result) => setMaximized(result.maximized));
-    const unsubscribe = api.onMaximizeChanged((payload) => {
-      setMaximized(payload.maximized);
-    });
-    return unsubscribe;
-  }, []);
-
-  if (!isElectron()) return null;
-
-  return (
-    <div className="host-no-drag pointer-events-auto absolute right-0 top-0 z-50 flex h-11">
-      <button
-        type="button"
-        aria-label="Minimize"
-        onClick={() => void window.electronAPI?.app.minimizeWindow()}
-        className="flex h-full w-[46px] items-center justify-center text-foreground/70 transition-colors hover:bg-foreground/10 hover:text-foreground"
-      >
-        <Minus className="h-4 w-4" strokeWidth={1.5} />
-      </button>
-      <button
-        type="button"
-        aria-label={maximized ? "Restore" : "Maximize"}
-        onClick={() => void window.electronAPI?.app.maximizeWindow()}
-        className="flex h-full w-[46px] items-center justify-center text-foreground/70 transition-colors hover:bg-foreground/10 hover:text-foreground"
-      >
-        {maximized
-          ? <Copy className="h-3.5 w-3.5" strokeWidth={1.5} />
-          : <Square className="h-3.5 w-3.5" strokeWidth={1.5} />}
-      </button>
-      <button
-        type="button"
-        aria-label="Close"
-        onClick={() => void window.electronAPI?.app.closeWindow()}
-        className="flex h-full w-[46px] items-center justify-center text-foreground/70 transition-colors hover:bg-[#e81123] hover:text-white"
-      >
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          width="12"
-          height="12"
-          viewBox="0 0 12 12"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.25"
-          strokeLinecap="round"
-        >
-          <line x1="1" y1="1" x2="11" y2="11" />
-          <line x1="11" y1="1" x2="1" y2="11" />
-        </svg>
-      </button>
-    </div>
-  );
-}
-
 function HostChrome({
   onToggleSidebar,
   onSidebarPreviewEnter,
@@ -412,6 +341,7 @@ function HostChrome({
 
 export default function App() {
   const { t } = useTranslation();
+  const nativeBoot = useNativeBootGate();
   const [state, setState] = useState<BootState>({ status: "loading" });
   const bootstrapSecretRef = useRef("");
 
@@ -513,9 +443,14 @@ export default function App() {
   }, [refreshReadyClient, state]);
 
   useEffect(() => {
+    if (nativeBoot.blocking) return;
     const saved = loadSavedSecret();
     return bootstrapWithSecret(saved);
-  }, [bootstrapWithSecret]);
+  }, [bootstrapWithSecret, nativeBoot.blocking]);
+
+  if (nativeBoot.blocking && nativeBoot.shell) {
+    return nativeBoot.shell;
+  }
 
   if (state.status === "loading") {
     return (
@@ -1474,8 +1409,6 @@ function Shell({
     onOpenAutomations,
     onOpenSkills,
     onOpenSearch: onOpenSessionSearch,
-    onToggleTheme: toggle,
-    theme,
     activeUtility: view === "apps" || view === "automations" || view === "skills" ? view : null,
     onToggleArchived,
     pinnedKeys: sidebarState.pinned_keys,
@@ -1513,26 +1446,35 @@ function Shell({
           showHostChrome && "host-window-shell",
         )}
       >
-        {/* Global drag strip for frameless window — only in Electron */}
-        {isElectron() ? (
-          <div className="host-drag-region absolute inset-x-0 top-0 z-30 h-11" />
-        ) : null}
-        <WindowControls />
         {showHostChrome ? (
           <HostChrome
             onToggleSidebar={showMainSidebar ? toggleHostSidebar : undefined}
             onSidebarPreviewEnter={openHostSidebarPreview}
             onSidebarPreviewLeave={scheduleHostSidebarPreviewClose}
             sidebarOpen={hostSidebarOpen}
+            rightAction={
+              view === "chat" ? undefined : (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  aria-label={t("thread.header.toggleTheme")}
+                  onClick={toggle}
+                  className="h-8 w-8 rounded-full text-muted-foreground/85 hover:bg-accent/40 hover:text-foreground"
+                >
+                  {theme === "dark" ? (
+                    <Sun className="h-4 w-4" />
+                  ) : (
+                    <Moon className="h-4 w-4" />
+                  )}
+                </Button>
+              )
+            }
           />
         ) : null}
-        {/* Titlebar spacer — reserves 44px so content sits below the frameless overlay */}
-        {isElectron() ? <div className="h-11 w-full shrink-0" /> : null}
         <div
           className={cn(
-            "relative flex w-full overflow-hidden",
-            isElectron() && "h-[calc(100%-2.75rem)]",
-            !isElectron() && "h-full",
+            "relative flex h-full w-full overflow-hidden",
           )}
         >
           {/* Host sidebar: in normal flow, so the thread area width stays honest. */}
@@ -1540,7 +1482,7 @@ function Shell({
             <aside
               data-testid="host-sidebar-flow"
               className={cn(
-                "relative z-20 hidden h-full shrink-0 overflow-hidden lg:block",
+                "relative z-20 hidden shrink-0 overflow-hidden lg:block",
                 "transition-[width] duration-300 ease-out",
               )}
               style={{
@@ -1641,7 +1583,6 @@ function Shell({
                 theme={theme}
                 onToggleTheme={toggle}
                 hideSidebarToggleForHostChrome
-                hideThemeButton
                 hostChromeTitleInset={hostSidebarCollapsed}
                 hideHeader={false}
                 workspaceScope={activeWorkspaceScope}

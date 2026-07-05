@@ -56,11 +56,14 @@ if (process.env.BYCLAW_PACK_SKIP_CLONE !== "1") {
   console.log("\n Skipping nanobot clone (BYCLAW_PACK_SKIP_CLONE=1)");
 }
 
-// ─ 2. Sync webui source from vendor ─────────────────────────────
+// ── 2. Sync webui source from vendor ─────────────────────────────
 node("scripts/build/sync-webui.mjs");
 
 // sync-webui rewrites packages/web/package.json with vendor React deps
 pnpm("install", "--no-frozen-lockfile");
+
+// ── 2b. Brand icons (from source JPG when present) ───────────────
+node("scripts/build/ensure-brand-icons.mjs");
 
 // ── 3. Build web UI ──────────────────────────────────────────────
 pnpm("build:shared");

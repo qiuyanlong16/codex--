@@ -4,11 +4,9 @@ import {
   Brain,
   CalendarClock,
   Menu,
-  Moon,
   Search,
   Settings,
   SquarePen,
-  Sun,
   Blocks,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -41,8 +39,6 @@ interface SidebarProps {
   onOpenSkills: () => void;
   onOpenAutomations: () => void;
   onOpenSearch: () => void;
-  onToggleTheme: () => void;
-  theme: "light" | "dark";
   activeUtility?: "apps" | "skills" | "automations" | null;
   onToggleArchived: () => void;
   onCollapse: () => void;
@@ -86,9 +82,6 @@ export function Sidebar(props: SidebarProps) {
   const collapsed = Boolean(props.collapsed);
   const toggleLabel = t("thread.header.toggleSidebar");
   const newChatShortcut = newChatShortcutLabel();
-  const themeLabel = props.theme === "dark"
-    ? t("sidebar.themeToggle.light")
-    : t("sidebar.themeToggle.dark");
 
   return (
     <nav
@@ -231,46 +224,6 @@ export function Sidebar(props: SidebarProps) {
         )}
       </div>
       <Separator className="bg-sidebar-border/50" />
-      {/* Theme toggle — sits just above Settings for quick access */}
-      <div
-        className={cn(
-          "flex items-center gap-1 px-2.5 py-1.5",
-          collapsed && "w-14 flex-col px-0",
-        )}
-      >
-        <Button
-          type="button"
-          variant="ghost"
-          aria-label={themeLabel}
-          onClick={props.onToggleTheme}
-          className={cn(
-            "group h-8 min-w-0 gap-2 overflow-hidden rounded-full font-medium text-sidebar-foreground/85 hover:bg-sidebar-accent/75 hover:text-sidebar-foreground",
-            "transition-[width,padding,border-radius,color,background-color] duration-300 ease-out",
-            collapsed
-              ? "w-9 justify-center gap-0 rounded-xl px-0"
-              : "w-full justify-start gap-2 px-3 text-[12.5px]",
-          )}
-        >
-          <span
-            className="flex shrink-0 items-center justify-center transition-transform duration-300 ease-out"
-            aria-hidden
-          >
-            {props.theme === "dark"
-              ? <Sun className="h-4 w-4" />
-              : <Moon className="h-4 w-4" />}
-          </span>
-          <span
-            className={cn(
-              "min-w-0 overflow-hidden truncate whitespace-nowrap transition-[max-width,opacity,transform] duration-200 ease-out",
-              collapsed
-                ? "max-w-0 -translate-x-1 opacity-0"
-                : "max-w-[12rem] translate-x-0 opacity-100",
-            )}
-          >
-            {themeLabel}
-          </span>
-        </Button>
-      </div>
       <div
         className={cn(
           "flex items-center gap-1 px-2.5 py-2.5 text-xs",

@@ -9,8 +9,10 @@ import type {
   LogExportBundleResponse,
   LogWriteRequest,
   StartupFailedEvent,
+  StartupPhaseEvent,
   StartupReadyEvent,
   StartupStateSnapshot,
+  TitleBarThemePayload,
 } from "@byclaw-nanobot/shared";
 import { IPC, IPC_EVENTS } from "@byclaw-nanobot/shared";
 
@@ -33,6 +35,9 @@ const electronAPI = {
     isMaximized: () => invoke(IPC.app.isMaximized) as Promise<{ maximized: boolean }>,
     openExternal: (url: string) =>
       invoke(IPC.app.openExternal, { url }) as Promise<{ ok: boolean }>,
+    setTitleBarTheme: (payload: TitleBarThemePayload) =>
+      invoke(IPC.app.setTitleBarTheme, payload) as Promise<{ ok: boolean }>,
+    retryStartup: () => invoke(IPC.app.retryStartup) as Promise<{ ok: boolean }>,
     onMaximizeChanged: (callback: (payload: { maximized: boolean }) => void) =>
       subscribeEvent(IPC_EVENTS.windowMaximizedChanged, callback),
   },
@@ -42,6 +47,8 @@ const electronAPI = {
       subscribeEvent(IPC_EVENTS.startupReady, callback),
     onFailed: (callback: (payload: StartupFailedEvent) => void) =>
       subscribeEvent(IPC_EVENTS.startupFailed, callback),
+    onPhase: (callback: (payload: StartupPhaseEvent) => void) =>
+      subscribeEvent(IPC_EVENTS.startupPhase, callback),
   },
   nanobot: {
     onReady: (callback: (payload: NanobotReadyEvent) => void) =>

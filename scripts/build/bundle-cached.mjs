@@ -114,6 +114,9 @@ function assertBundleInputs() {
       "resources/installer/wizard-banner.bmp",
     );
   }
+  if (targetPlatform === "darwin") {
+    required.push("resources/icons/icon.icns");
+  }
   for (const rel of required) {
     const full = path.join(repoRoot, rel);
     if (!fs.existsSync(full)) {

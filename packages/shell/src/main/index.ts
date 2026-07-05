@@ -1,9 +1,10 @@
 import path from "node:path";
+import fs from "node:fs";
 import { pathToFileURL } from "node:url";
 import { randomBytes } from "node:crypto";
 import { app, BrowserWindow } from "electron";
 import { IPC, IPC_EVENTS } from "@byclaw-nanobot/shared";
-import type { NanobotReadyEvent, StartupFailedEvent, StartupReadyEvent } from "@byclaw-nanobot/shared";
+import type { NanobotReadyEvent, StartupFailedEvent, StartupPhaseEvent, StartupReadyEvent, TitleBarThemePayload } from "@byclaw-nanobot/shared";
 import { initMainLogger, mainLog } from "./core/logging/main-logger.js";
 import { configureProductUserDataPath, getByclawHomeDir, resolveProductUserDataPath } from "./core/platform-paths.js";
 import { runFirstRunSetup } from "./nanobot/first-run-setup.js";
@@ -76,6 +77,45 @@ let mainWindow: BrowserWindow | null = null;
 let trayService: TrayService | null = null;
 let isQuitting = false;
 let gatewayUrl: string | null = null;
+let startupInFlight: Promise<void> | null = null;
+let currentTitleBarTheme: TitleBarThemePayload["mode"] = "light";
+
+const TITLE_BAR_THEMES: Record<TitleBarThemePayload["mode"], { color: string; symbolColor: string; backgroundColor: string }> = {
+  light: { color: "#f4f3f1", symbolColor: "#6b6b6b", backgroundColor: "#f4f3f1" },
+  dark: { color: "#161618", symbolColor: "#e5e5e5", backgroundColor: "#161618" },
+};
+
+function resolvePackagedWebUiUrl(): string | null {
+  const candidates = [
+    path.join(process.resourcesPath, "webui-dist", "index.html"),
+    path.join(app.getAppPath(), "webui-dist", "index.html"),
+    path.join(app.getAppPath(), "..", "webui-dist", "index.html"),
+    path.join(__dirname, "../../../web/dist/index.html"),
+  ];
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) {
+      return pathToFileURL(candidate).href;
+    }
+  }
+  return null;
+}
+
+function applyTitleBarTheme(mode: TitleBarThemePayload["mode"]): void {
+  currentTitleBarTheme = mode;
+  const palette = TITLE_BAR_THEMES[mode];
+  if (mainWindow && process.platform === "win32") {
+    mainWindow.setBackgroundColor(palette.backgroundColor);
+    mainWindow.setTitleBarOverlay({
+      color: palette.color,
+      symbolColor: palette.symbolColor,
+      height: 36,
+    });
+  }
+}
+
+function emitStartupPhase(phase: StartupPhaseEvent["phase"], detail?: string): void {
+  sendToRenderer(IPC_EVENTS.startupPhase, { phase, detail } satisfies StartupPhaseEvent);
+}
 
 const LOADING_HTML = `
 <!DOCTYPE html>
@@ -121,11 +161,8 @@ const LOADING_HTML = `
 
 function resolveWebUrl(): string {
   if (isDev) return DEV_SERVER;
-  // In production, load from the gateway's HTTP server (not file://)
-  // so all API requests use the same origin.
   if (gatewayUrl) return gatewayUrl;
-  // Show loading page immediately
-  return `data:text/html,${encodeURIComponent(LOADING_HTML)}`;
+  return resolvePackagedWebUiUrl() ?? `data:text/html,${encodeURIComponent(LOADING_HTML)}`;
 }
 
 function sendToRenderer(channel: string, payload: unknown): void {
@@ -154,15 +191,16 @@ async function emitStartupEvent(
 }
 
 async function createWindow(): Promise<BrowserWindow> {
+  const initialTheme = TITLE_BAR_THEMES[currentTitleBarTheme];
   const win = new BrowserWindow({
     width: 1200,
     height: 760,
     show: false,
-    backgroundColor: "#f4f3f1",
+    backgroundColor: initialTheme.backgroundColor,
     titleBarStyle: process.platform === "win32" ? "hidden" : "default",
     titleBarOverlay: process.platform === "win32" ? {
-      color: "#f4f3f1",
-      symbolColor: "#6b6b6b",
+      color: initialTheme.color,
+      symbolColor: initialTheme.symbolColor,
       height: 36,
     } : undefined,
     webPreferences: {
@@ -192,43 +230,34 @@ function requestQuit(): void {
 }
 
 async function reportStartupFailure(code: string): Promise<void> {
-  const failed: StartupFailedEvent = { code, message: code, i18nKey: "startup.nanobotNotReady" };
+  const logDir = app.getPath("userData");
+  const failed: StartupFailedEvent = {
+    code,
+    message: code,
+    i18nKey: "startup.nanobotNotReady",
+    logDir,
+  };
   markStartupFailed(failed);
+  emitStartupPhase("failed", code);
   await emitStartupEvent(IPC_EVENTS.startupFailed, failed);
-
-  if (mainWindow && !isDev) {
-    const logDir = app.getPath("userData");
-    const failureHtml = `
-<!DOCTYPE html>
-<html>
-<head>
-  <style>
-    body { margin: 0; padding: 32px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f4f3f1; color: #333; }
-    h1 { font-size: 18px; margin: 0 0 12px; }
-    p { font-size: 14px; line-height: 1.5; color: #555; }
-    code { background: #eceae6; padding: 2px 6px; border-radius: 4px; font-size: 13px; }
-  </style>
-</head>
-<body>
-  <h1>Failed to start nanobot</h1>
-  <p>Error: <code>${code.replace(/</g, "&lt;")}</code></p>
-  <p>Check logs in <code>${logDir.replace(/</g, "&lt;")}</code> (main.log, early.log, crash.log).</p>
-  <p>Python state: <code>~/.by-claw-nanobot/resources/python-venv</code></p>
-</body>
-</html>`;
-    try {
-      await mainWindow.loadURL(`data:text/html,${encodeURIComponent(failureHtml)}`);
-    } catch {
-      /* ignore */
-    }
-  }
 }
 
 async function bootstrap(): Promise<void> {
   resetStartupSnapshot();
   initMainLogger(app.getPath("userData"), isDev);
 
-  registerAppHandlers();
+  registerAppHandlers({
+    applyTitleBarTheme,
+    retryStartup: () => {
+      if (startupInFlight) return startupInFlight;
+      resetStartupSnapshot();
+      emitStartupPhase("first_run");
+      startupInFlight = runBackgroundStartup().finally(() => {
+        startupInFlight = null;
+      });
+      return startupInFlight;
+    },
+  });
   registerLogHandlers();
 
   mainWindow = await createWindow();
@@ -250,16 +279,32 @@ async function bootstrap(): Promise<void> {
 }
 
 async function runBackgroundStartup(): Promise<void> {
+  emitStartupPhase("first_run");
   await runFirstRunSetup();
   const stateDir = getByclawHomeDir();
   const nanobotRuntime = new NanobotRuntimeService(stateDir);
 
   try {
+    emitStartupPhase("spawning");
+    const phasePoller = setInterval(() => {
+      const phase = nanobotRuntime.getGatewayStartupPhase();
+      if (phase === "spawning" || phase === "healthz_ok" || phase === "awaiting_readyz") {
+        emitStartupPhase(phase);
+      }
+    }, 400);
     const integrity = await nanobotRuntime.ensureReady();
+    clearInterval(phasePoller);
 
     let nanobotHealthy = false;
     let nanobotVersion: string | undefined;
     const readyzPassed = nanobotRuntime.getGatewayStartupPhase() === "ready";
+    const gatewayPhase = nanobotRuntime.getGatewayStartupPhase();
+    if (gatewayPhase === "healthz_ok" || gatewayPhase === "awaiting_readyz" || gatewayPhase === "ready") {
+      emitStartupPhase(gatewayPhase === "ready" ? "awaiting_readyz" : gatewayPhase);
+    }
+    if (gatewayPhase === "ready") {
+      emitStartupPhase("ready");
+    }
 
     if (integrity.state === "ready") {
       nanobotHealthy = true;

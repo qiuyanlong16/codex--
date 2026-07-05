@@ -6,6 +6,7 @@ import type {
   FilePreviewPayload,
   ImageGenerationSettingsUpdate,
   McpPresetsPayload,
+  NanobotFeaturesPayload,
   ModelConfigurationCreate,
   ModelConfigurationUpdate,
   NetworkSafetySettingsUpdate,
@@ -358,6 +359,44 @@ export async function fetchInstalledCliApps(
   );
 }
 
+export async function fetchNanobotFeatures(
+  token: string,
+  base: string = "",
+): Promise<NanobotFeaturesPayload> {
+  return request<NanobotFeaturesPayload>(
+    `${base}/api/settings/nanobot-features`,
+    token,
+    undefined,
+    API_READ_TIMEOUT_MS,
+  );
+}
+
+export async function enableNanobotFeature(
+  token: string,
+  name: string,
+  base: string = "",
+): Promise<NanobotFeaturesPayload> {
+  const query = new URLSearchParams();
+  query.set("name", name);
+  return request<NanobotFeaturesPayload>(
+    `${base}/api/settings/nanobot-features/enable?${query}`,
+    token,
+  );
+}
+
+export async function disableNanobotFeature(
+  token: string,
+  name: string,
+  base: string = "",
+): Promise<NanobotFeaturesPayload> {
+  const query = new URLSearchParams();
+  query.set("name", name);
+  return request<NanobotFeaturesPayload>(
+    `${base}/api/settings/nanobot-features/disable?${query}`,
+    token,
+  );
+}
+
 export async function runCliAppAction(
   token: string,
   action: "install" | "update" | "uninstall" | "test",
@@ -570,10 +609,80 @@ export async function updateProviderSettings(
   if (update.apiKey !== undefined) query.set("api_key", update.apiKey);
   if (update.apiBase !== undefined) query.set("api_base", update.apiBase);
   if (update.apiType !== undefined) query.set("api_type", update.apiType);
+  if (update.clearCredentials) query.set("clear_credentials", "true");
   return request<SettingsPayload>(
     `${base}/api/settings/provider/update?${query}`,
     token,
   );
+}
+
+export async function removeProviderWithFallback(
+  token: string,
+  snapshot: SettingsPayload,
+  providerName: string,
+  base: string = "",
+): Promise<SettingsPayload> {
+  const others = snapshot.providers.filter(
+    (provider) => provider.configured && provider.name !== providerName,
+  );
+  if (others.length === 0) {
+    throw new Error("Cannot remove the last configured provider");
+  }
+  const fallback = others[0]!;
+  const removeQuery = new URLSearchParams();
+  removeQuery.set("provider", providerName);
+  removeQuery.set("fallback_provider", fallback.name);
+  try {
+    return await request<SettingsPayload>(
+      `${base}/api/settings/provider/remove?${removeQuery}`,
+      token,
+    );
+  } catch {
+    let payload = snapshot;
+    const agentUsesProvider =
+      payload.agent.provider === providerName
+      || payload.agent.resolved_provider === providerName;
+    const fallbackPreset = payload.model_presets.find(
+      (preset) => preset.provider === fallback.name,
+    );
+    const fallbackModel = fallbackPreset?.model ?? payload.agent.model;
+
+    if (agentUsesProvider) {
+      payload = await updateSettings(
+        token,
+        {
+          provider: fallback.name,
+          model: fallbackModel,
+          modelPreset: payload.agent.model_preset ?? "default",
+        },
+        base,
+      );
+    }
+
+    for (const preset of payload.model_presets) {
+      if (preset.is_default || preset.provider !== providerName) continue;
+      payload = await updateModelConfiguration(
+        token,
+        {
+          name: preset.name,
+          provider: fallback.name,
+          model: preset.model,
+        },
+        base,
+      );
+    }
+
+    return updateProviderSettings(
+      token,
+      {
+        provider: providerName,
+        apiKey: "",
+        apiBase: "",
+        clearCredentials: true,
+      },
+      base,
+    );
+  }
 }
 
 export async function loginProviderOAuth(

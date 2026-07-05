@@ -1527,6 +1527,10 @@ describe("App layout", () => {
       }),
     );
 
+    localStorage.setItem(
+      "nanobot-webui.settings-preferences",
+      JSON.stringify({ brandLogos: true }),
+    );
     render(<App />);
 
     await waitFor(() => expect(connectSpy).toHaveBeenCalled());
@@ -2110,7 +2114,7 @@ describe("App layout", () => {
 
     await waitFor(() => expect(connectSpy).toHaveBeenCalled());
 
-    fireEvent.click(screen.getByRole("button", { name: "Dark mode" }));
+    fireEvent.click(screen.getByRole("button", { name: "Toggle theme from header" }));
     expect(toggleThemeSpy).toHaveBeenCalledTimes(1);
 
     fireEvent.click(screen.getByRole("button", { name: "Collapse sidebar" }));
@@ -2132,7 +2136,7 @@ describe("App layout", () => {
     expect(createChatSpy).not.toHaveBeenCalled();
     expect(screen.getByText(HERO_GREETING_PATTERN)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Start a new chat" })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Dark mode" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Toggle theme from header" })).toBeInTheDocument();
     expect(within(sidebar).getByRole("button", { name: "Settings" })).toBeInTheDocument();
 
     expect(within(sidebar).getByText("Existing chat")).toBeInTheDocument();

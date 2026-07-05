@@ -28,6 +28,27 @@ export interface StartupFailedEvent {
   code: string;
   message: string;
   i18nKey: string;
+  logDir?: string;
+}
+
+export type StartupPhaseId =
+  | "idle"
+  | "first_run"
+  | "spawning"
+  | "healthz_ok"
+  | "awaiting_readyz"
+  | "ready"
+  | "failed";
+
+export interface StartupPhaseEvent {
+  phase: StartupPhaseId;
+  detail?: string;
+}
+
+export type TitleBarThemeMode = "light" | "dark";
+
+export interface TitleBarThemePayload {
+  mode: TitleBarThemeMode;
 }
 
 export interface StartupStateSnapshot {
