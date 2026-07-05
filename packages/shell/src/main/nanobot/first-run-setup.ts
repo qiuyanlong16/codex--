@@ -108,6 +108,8 @@ export async function runFirstRunSetup(): Promise<void> {
 
     if (fs.existsSync(venvPythonPath(venvDir))) {
       writeCliWrapper(homeDir, venvDir);
+    } else {
+      mainLog.warn("setup", "python venv not found yet; CLI wrapper skipped", { venvDir });
     }
 
     fs.writeFileSync(

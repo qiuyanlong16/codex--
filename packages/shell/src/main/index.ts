@@ -195,6 +195,33 @@ async function reportStartupFailure(code: string): Promise<void> {
   const failed: StartupFailedEvent = { code, message: code, i18nKey: "startup.nanobotNotReady" };
   markStartupFailed(failed);
   await emitStartupEvent(IPC_EVENTS.startupFailed, failed);
+
+  if (mainWindow && !isDev) {
+    const logDir = app.getPath("userData");
+    const failureHtml = `
+<!DOCTYPE html>
+<html>
+<head>
+  <style>
+    body { margin: 0; padding: 32px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f4f3f1; color: #333; }
+    h1 { font-size: 18px; margin: 0 0 12px; }
+    p { font-size: 14px; line-height: 1.5; color: #555; }
+    code { background: #eceae6; padding: 2px 6px; border-radius: 4px; font-size: 13px; }
+  </style>
+</head>
+<body>
+  <h1>Failed to start nanobot</h1>
+  <p>Error: <code>${code.replace(/</g, "&lt;")}</code></p>
+  <p>Check logs in <code>${logDir.replace(/</g, "&lt;")}</code> (main.log, early.log, crash.log).</p>
+  <p>Python state: <code>~/.by-claw-nanobot/resources/python-venv</code></p>
+</body>
+</html>`;
+    try {
+      await mainWindow.loadURL(`data:text/html,${encodeURIComponent(failureHtml)}`);
+    } catch {
+      /* ignore */
+    }
+  }
 }
 
 async function bootstrap(): Promise<void> {

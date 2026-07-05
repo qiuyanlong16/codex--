@@ -43,3 +43,14 @@ export function resolveSystemTarCandidates(): string[] {
   }
   return ["/usr/bin/tar", "/bin/tar", "tar"];
 }
+
+/** Rewrite pyvenv.cfg so the bundled venv is relocatable across machines. */
+export function fixPortablePyvenvCfg(venvRoot: string): void {
+  const cfgPath = path.join(venvRoot, "pyvenv.cfg");
+  if (!fs.existsSync(cfgPath)) return;
+  const pythonExe = venvPythonPath(venvRoot);
+  let content = fs.readFileSync(cfgPath, "utf8");
+  content = content.replace(/^home\s*=.*$/m, `home = ${path.dirname(pythonExe)}`);
+  content = content.replace(/^executable\s*=.*$/m, `executable = ${pythonExe}`);
+  fs.writeFileSync(cfgPath, content);
+}

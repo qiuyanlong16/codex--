@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
 import { app } from "electron";
 import { resolveResourcesPath, getByclawHomeDir } from "../core/platform-paths.js";
-import { venvPythonPath, resolveSystemTarCandidates } from "../core/venv-paths.js";
+import { venvPythonPath, resolveSystemTarCandidates, fixPortablePyvenvCfg } from "../core/venv-paths.js";
 import { mainLog } from "../core/logging/main-logger.js";
 
 export type NanobotBundleLayout = "packaged" | "dev-checkout";
@@ -35,13 +35,29 @@ function findSitePackagesInVenv(venvRoot: string): string | null {
 }
 
 function pythonExecutableInDir(dir: string): string | null {
-  // Check both the directory root and the venv Scripts/ bin/ subdirectory.
+  // Standard venv layout (Windows Scripts/ or Unix bin/).
+  const venvCandidate = venvPythonPath(dir);
+  if (fs.existsSync(venvCandidate)) {
+    return venvCandidate;
+  }
+  if (process.platform !== "win32") {
+    const binDir = path.join(dir, "bin");
+    for (const name of ["python3", "python"]) {
+      const candidate = path.join(binDir, name);
+      if (fs.existsSync(candidate)) return candidate;
+    }
+  }
+
+  // Flat layout (python at bundle root).
   const searchDirs = [
     dir,
-    path.join(dir, "Scripts"), // Windows venv
-    path.join(dir, "bin"),     // Unix venv
+    path.join(dir, "Scripts"),
+    path.join(dir, "bin"),
   ];
-  const names = process.platform === "win32" ? ["python.exe", "python"] : ["python", "python.exe"];
+  const names =
+    process.platform === "win32"
+      ? ["python.exe", "python3", "python"]
+      : ["python3", "python", "python.exe"];
   for (const searchDir of searchDirs) {
     for (const name of names) {
       const candidate = path.join(searchDir, name);
@@ -200,7 +216,12 @@ export async function ensureVenvExtracted(): Promise<void> {
     try { fs.unlinkSync(path.join(fallbackResources, "python-venv_manifest.json")); } catch { /* ignore */ }
 
     if (fs.existsSync(fallbackPython)) {
-      mainLog.info("nanobot", "venv extraction complete", { fallbackVenv });
+      fixPortablePyvenvCfg(fallbackVenv);
+      const probe = await runCommandAsync(fallbackPython, ["--version"]);
+      if (!probe) {
+        throw new Error(`venv_python_broken: cannot execute ${fallbackPython}`);
+      }
+      mainLog.info("nanobot", "venv extraction complete", { fallbackVenv, pythonVersion: probe.trim() });
     } else {
       // List directory contents to help diagnose what went wrong
       let dirContents: string[] = [];
@@ -212,9 +233,9 @@ export async function ensureVenvExtracted(): Promise<void> {
       throw new Error(`venv_extract_incomplete: python not found at ${fallbackPython}, dir contents: ${dirContents.join(", ") || "(empty)"}`);
     }
   } catch (err) {
-    mainLog.error("nanobot", "venv extraction failed", {
-      detail: err instanceof Error ? err.message : String(err),
-    });
+    const detail = err instanceof Error ? err.message : String(err);
+    mainLog.error("nanobot", "venv extraction failed", { detail });
+    throw err instanceof Error ? err : new Error(detail);
   }
 }
 

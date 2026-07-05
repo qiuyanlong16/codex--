@@ -140,7 +140,12 @@ if (fs.existsSync(pyInVenv)) {
 } else {
   console.log(`[create-python-venv] creating venv...`);
   fs.mkdirSync(path.dirname(VENV_DIR), { recursive: true });
-  run(SYSTEM_PYTHON, ["-m", "venv", "--clear", VENV_DIR]);
+  const venvArgs = ["-m", "venv", "--clear"];
+  if (process.platform !== "win32") {
+    venvArgs.push("--copies");
+  }
+  venvArgs.push(VENV_DIR);
+  run(SYSTEM_PYTHON, venvArgs);
 }
 
 if (!fs.existsSync(pyInVenv)) {
