@@ -8,8 +8,10 @@ import {
   fetchCliApps,
   fetchInstalledCliApps,
   fetchMcpPresets,
+  fetchNanobotFeatures,
   fetchProviderModels,
   fetchSessionAutomations,
+  fetchSettings,
   fetchSettingsUsage,
   fetchSidebarState,
   fetchSkillDetail,
@@ -21,6 +23,8 @@ import {
   listSlashCommands,
   loginProviderOAuth,
   logoutProviderOAuth,
+  disableNanobotFeature,
+  enableNanobotFeature,
   runAutomationAction,
   runCliAppAction,
   runMcpPresetAction,
@@ -50,6 +54,21 @@ describe("webui API helpers", () => {
   afterEach(() => {
     vi.useRealTimers();
     vi.unstubAllGlobals();
+  });
+
+  it("builds absolute settings URL on packaged file:// shell", async () => {
+    vi.stubGlobal("window", {
+      location: { port: "", protocol: "file:", host: "" },
+    });
+    await fetchSettings("tok");
+
+    expect(fetch).toHaveBeenCalledWith(
+      "http://127.0.0.1:8766/api/settings",
+      expect.objectContaining({
+        headers: { Authorization: "Bearer tok" },
+        credentials: "same-origin",
+      }),
+    );
   });
 
   it("percent-encodes websocket keys when fetching webui-thread snapshot", async () => {
@@ -435,6 +454,40 @@ describe("webui API helpers", () => {
     await expect(fetchInstalledCliApps("tok")).resolves.toMatchObject({ apps: [] });
     expect(fetch).toHaveBeenCalledWith(
       "/api/settings/cli-apps?installed_only=1",
+      expect.objectContaining({
+        headers: { Authorization: "Bearer tok" },
+      }),
+    );
+  });
+
+  it("reads and toggles nanobot optional features", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        features: [],
+        enabled_count: 0,
+      }),
+    } as Response);
+
+    await expect(fetchNanobotFeatures("tok")).resolves.toMatchObject({ features: [] });
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/settings/nanobot-features",
+      expect.objectContaining({
+        headers: { Authorization: "Bearer tok" },
+      }),
+    );
+
+    await enableNanobotFeature("tok", "matrix");
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/settings/nanobot-features/enable?name=matrix",
+      expect.objectContaining({
+        headers: { Authorization: "Bearer tok" },
+      }),
+    );
+
+    await disableNanobotFeature("tok", "matrix");
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/settings/nanobot-features/disable?name=matrix",
       expect.objectContaining({
         headers: { Authorization: "Bearer tok" },
       }),

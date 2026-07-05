@@ -1,11 +1,13 @@
 import path from "node:path";
+import fs from "node:fs";
 import { pathToFileURL } from "node:url";
 import { randomBytes } from "node:crypto";
-import { app, BrowserWindow } from "electron";
+import { app, BrowserWindow, nativeTheme } from "electron";
 import { IPC, IPC_EVENTS } from "@byclaw-nanobot/shared";
-import type { NanobotReadyEvent, StartupFailedEvent, StartupReadyEvent } from "@byclaw-nanobot/shared";
+import type { NanobotReadyEvent, StartupFailedEvent, StartupPhaseEvent, StartupReadyEvent, TitleBarThemePayload } from "@byclaw-nanobot/shared";
 import { initMainLogger, mainLog } from "./core/logging/main-logger.js";
-import { configureProductUserDataPath, getByclawHomeDir } from "./core/platform-paths.js";
+import { configureProductUserDataPath, getByclawHomeDir, resolveProductUserDataPath } from "./core/platform-paths.js";
+import { runFirstRunSetup } from "./nanobot/first-run-setup.js";
 import {
   registerAppHandlers,
   registerWindowHandlers,
@@ -25,11 +27,7 @@ import {
 // Very early init log - writes before anything else
 try {
   const fs = require("node:fs");
-  const earlyLogPath = path.join(
-    process.env.LOCALAPPDATA ?? path.join(process.env.USERPROFILE ?? "", "AppData", "Local"),
-    "ByNanobot",
-    "early.log",
-  );
+  const earlyLogPath = path.join(resolveProductUserDataPath(), "early.log");
   fs.mkdirSync(path.dirname(earlyLogPath), { recursive: true });
   fs.appendFileSync(earlyLogPath, `[${new Date().toISOString()}] Module loaded, pid=${process.pid}\n`);
 } catch (err) {
@@ -37,11 +35,7 @@ try {
 }
 
 // Early crash handler - writes to a file that doesn't depend on electron-log
-const _crashLogPath = path.join(
-  process.env.LOCALAPPDATA ?? path.join(process.env.USERPROFILE ?? "", "AppData", "Local"),
-  "ByNanobot",
-  "crash.log",
-);
+const _crashLogPath = path.join(resolveProductUserDataPath(), "crash.log");
 process.on("uncaughtException", (err) => {
   try {
     const fs = require("node:fs");
@@ -83,56 +77,56 @@ let mainWindow: BrowserWindow | null = null;
 let trayService: TrayService | null = null;
 let isQuitting = false;
 let gatewayUrl: string | null = null;
+let startupInFlight: Promise<void> | null = null;
+let currentTitleBarTheme: TitleBarThemePayload["mode"] =
+  nativeTheme.shouldUseDarkColors ? "dark" : "light";
 
-const LOADING_HTML = `
-<!DOCTYPE html>
-<html>
-<head>
-  <style>
-    body {
-      margin: 0;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      height: 100vh;
-      background: #f4f3f1;
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+const TITLE_BAR_THEMES: Record<TitleBarThemePayload["mode"], { color: string; symbolColor: string; backgroundColor: string }> = {
+  light: { color: "#ffffff", symbolColor: "#6b6b6b", backgroundColor: "#ffffff" },
+  dark: { color: "#1a1a1a", symbolColor: "#e5e5e5", backgroundColor: "#1a1a1a" },
+};
+
+function resolvePackagedWebUiUrl(): string | null {
+  const candidates = [
+    path.join(process.resourcesPath, "webui-dist", "index.html"),
+    path.join(app.getAppPath(), "webui-dist", "index.html"),
+    path.join(app.getAppPath(), "..", "webui-dist", "index.html"),
+    path.join(__dirname, "../../../web/dist/index.html"),
+  ];
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) {
+      return pathToFileURL(candidate).href;
     }
-    .container {
-      text-align: center;
-    }
-    .spinner {
-      width: 40px;
-      height: 40px;
-      border: 3px solid #e0e0e0;
-      border-top-color: #6b6b6b;
-      border-radius: 50%;
-      animation: spin 0.8s linear infinite;
-      margin: 0 auto 20px;
-    }
-    @keyframes spin { to { transform: rotate(360deg); } }
-    .text {
-      color: #666;
-      font-size: 14px;
-    }
-  </style>
-</head>
-<body>
-  <div class="container">
-    <div class="spinner"></div>
-    <div class="text">Starting nanobot...</div>
-  </div>
-</body>
-</html>
-`;
+  }
+  return null;
+}
+
+function applyTitleBarTheme(payload: TitleBarThemePayload): void {
+  currentTitleBarTheme = payload.mode;
+  const palette = payload.surfaceColor
+    ? {
+        color: payload.surfaceColor,
+        symbolColor: payload.mode === "dark" ? "#e5e5e5" : "#6b6b6b",
+        backgroundColor: payload.surfaceColor,
+      }
+    : TITLE_BAR_THEMES[payload.mode];
+  if (mainWindow && process.platform === "win32") {
+    mainWindow.setBackgroundColor(palette.backgroundColor);
+    mainWindow.setTitleBarOverlay({
+      color: palette.color,
+      symbolColor: palette.symbolColor,
+      height: 36,
+    });
+  }
+}
+
+function emitStartupPhase(phase: StartupPhaseEvent["phase"], detail?: string): void {
+  sendToRenderer(IPC_EVENTS.startupPhase, { phase, detail } satisfies StartupPhaseEvent);
+}
 
 function resolveWebUrl(): string {
   if (isDev) return DEV_SERVER;
-  // In production, load from the gateway's HTTP server (not file://)
-  // so all API requests use the same origin.
-  if (gatewayUrl) return gatewayUrl;
-  // Show loading page immediately
-  return `data:text/html,${encodeURIComponent(LOADING_HTML)}`;
+  return resolvePackagedWebUiUrl() ?? DEV_SERVER;
 }
 
 function sendToRenderer(channel: string, payload: unknown): void {
@@ -161,15 +155,21 @@ async function emitStartupEvent(
 }
 
 async function createWindow(): Promise<BrowserWindow> {
+  const useDark = nativeTheme.shouldUseDarkColors;
+  const initialPalette = {
+    color: useDark ? "#0b0d12" : "#f8f9fb",
+    symbolColor: useDark ? "#e5e5e5" : "#6b6b6b",
+    backgroundColor: useDark ? "#0b0d12" : "#f8f9fb",
+  };
   const win = new BrowserWindow({
-    width: 1200,
-    height: 760,
+    width: 1080,
+    height: 680,
     show: false,
-    backgroundColor: "#f4f3f1",
+    backgroundColor: initialPalette.backgroundColor,
     titleBarStyle: process.platform === "win32" ? "hidden" : "default",
     titleBarOverlay: process.platform === "win32" ? {
-      color: "#f4f3f1",
-      symbolColor: "#6b6b6b",
+      color: initialPalette.color,
+      symbolColor: initialPalette.symbolColor,
       height: 36,
     } : undefined,
     webPreferences: {
@@ -199,8 +199,15 @@ function requestQuit(): void {
 }
 
 async function reportStartupFailure(code: string): Promise<void> {
-  const failed: StartupFailedEvent = { code, message: code, i18nKey: "startup.nanobotNotReady" };
+  const logDir = app.getPath("userData");
+  const failed: StartupFailedEvent = {
+    code,
+    message: code,
+    i18nKey: "startup.nanobotNotReady",
+    logDir,
+  };
   markStartupFailed(failed);
+  emitStartupPhase("failed", code);
   await emitStartupEvent(IPC_EVENTS.startupFailed, failed);
 }
 
@@ -208,7 +215,18 @@ async function bootstrap(): Promise<void> {
   resetStartupSnapshot();
   initMainLogger(app.getPath("userData"), isDev);
 
-  registerAppHandlers();
+  registerAppHandlers({
+    applyTitleBarTheme,
+    retryStartup: () => {
+      if (startupInFlight) return startupInFlight;
+      resetStartupSnapshot();
+      emitStartupPhase("first_run");
+      startupInFlight = runBackgroundStartup().finally(() => {
+        startupInFlight = null;
+      });
+      return startupInFlight;
+    },
+  });
   registerLogHandlers();
 
   mainWindow = await createWindow();
@@ -220,7 +238,7 @@ async function bootstrap(): Promise<void> {
     getLocale: () => app.getLocale(),
   });
 
-  mainLog.info("lifecycle", `by-claw-nanobot shell window ready (${isDev ? "dev" : "prod"})`);
+  mainLog.info("lifecycle", `codex-- shell window ready (${isDev ? "dev" : "prod"})`);
   sendToRenderer(IPC_EVENTS.logPolicyChanged, { ready: true });
 
   const encryptKey = randomBytes(16).toString("hex");
@@ -230,15 +248,32 @@ async function bootstrap(): Promise<void> {
 }
 
 async function runBackgroundStartup(): Promise<void> {
+  emitStartupPhase("first_run");
+  await runFirstRunSetup();
   const stateDir = getByclawHomeDir();
   const nanobotRuntime = new NanobotRuntimeService(stateDir);
 
   try {
+    emitStartupPhase("spawning");
+    const phasePoller = setInterval(() => {
+      const phase = nanobotRuntime.getGatewayStartupPhase();
+      if (phase === "spawning" || phase === "healthz_ok" || phase === "awaiting_readyz") {
+        emitStartupPhase(phase);
+      }
+    }, 400);
     const integrity = await nanobotRuntime.ensureReady();
+    clearInterval(phasePoller);
 
     let nanobotHealthy = false;
     let nanobotVersion: string | undefined;
     const readyzPassed = nanobotRuntime.getGatewayStartupPhase() === "ready";
+    const gatewayPhase = nanobotRuntime.getGatewayStartupPhase();
+    if (gatewayPhase === "healthz_ok" || gatewayPhase === "awaiting_readyz" || gatewayPhase === "ready") {
+      emitStartupPhase(gatewayPhase === "ready" ? "awaiting_readyz" : gatewayPhase);
+    }
+    if (gatewayPhase === "ready") {
+      emitStartupPhase("ready");
+    }
 
     if (integrity.state === "ready") {
       nanobotHealthy = true;
@@ -293,17 +328,8 @@ async function runBackgroundStartup(): Promise<void> {
     };
     sendToRenderer(IPC_EVENTS.nanobotReady, nanobotReady);
 
-    // Load the WebUI from the main server (serves WebUI + API + WebSocket)
-    if (mainWindow && !isDev) {
-      mainLog.info("lifecycle", "loading WebUI", { url: nanobotUrl });
-      try {
-        await mainWindow.loadURL(nanobotUrl);
-      } catch (err) {
-        const detail = err instanceof Error ? err.message : String(err);
-        mainLog.error("lifecycle", "loadURL failed", { url: nanobotUrl, detail });
-        throw new Error(`loadurl_failed: ${detail}`);
-      }
-    }
+    // Keep the renderer on the packaged/dev WebUI — bootstrap reaches the gateway directly.
+    mainLog.info("lifecycle", "gateway ready for renderer bootstrap", { url: nanobotUrl });
 
     const startupReady: StartupReadyEvent = {
       nanobotPort: mainServerPort,

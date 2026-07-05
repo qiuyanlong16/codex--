@@ -40,6 +40,29 @@
       "description": "nanobot web UI — chat with your nanobot workspace."
     }
   },
+  "startup": {
+    "booting": {
+      "title": "Starting codex--",
+      "hint": "Setting up your local AI agent. This usually takes a few seconds."
+    },
+    "failed": {
+      "title": "Could not start codex--",
+      "hint": "Check your model provider configuration and logs, then retry.",
+      "gatewayHint": "The gateway is running but the UI could not connect. Check logs and retry.",
+      "gatewayError": "Connection error",
+      "error": "Startup error",
+      "logDir": "Logs",
+      "retry": "Retry",
+      "openLogs": "Open logs folder"
+    },
+    "phases": {
+      "firstRun": "Preparing environment",
+      "spawning": "Starting gateway",
+      "healthz": "Health check",
+      "readyz": "Loading tools & models",
+      "ready": "Connecting"
+    }
+  },
   "sidebar": {
     "navigation": "Sidebar navigation",
     "collapse": "Collapse sidebar",
@@ -50,10 +73,6 @@
     "noSearchResults": "No matching chats.",
     "recent": "Recent",
     "settings": "Settings",
-    "themeToggle": {
-      "light": "Light mode",
-      "dark": "Dark mode"
-    },
     "language": {
       "label": "Language",
       "ariaLabel": "Change language"
@@ -388,6 +407,9 @@
       "hideApiKey": "Hide API key",
       "noConfiguredProviders": "No configured providers",
       "configureFirst": "Configure a provider in BYOK first.",
+      "removeProvider": "Remove",
+      "removeConfirm": "Remove {{provider}}? The active model will fall back to {{fallback}}.",
+      "removeLastProvider": "Keep at least one configured provider.",
       "openByok": "Open BYOK",
       "tabs": {
         "ariaLabel": "BYOK credential type",
@@ -462,18 +484,36 @@
       "missingCredential": "Configure this provider before enabling image generation."
     },
     "apps": {
-      "description": "Add app CLIs and MCP services nanobot can use from chat.",
+      "description": "Enable plugins, local app adapters, and connected tool servers.",
       "cliLabel": "CLI",
       "mcpLabel": "MCP",
+      "channelLabel": "Channel",
+      "featureLabel": "Feature",
       "filterAll": "All",
+      "filterPlugins": "Plugins",
       "filterCli": "CLI apps",
       "filterMcp": "MCP services",
       "enabledSummary": "{{count}} enabled",
-      "caption": "{{cli}} CLI · {{mcp}} MCP",
+      "caption": "{{plugins}} Plugin · {{cli}} CLI · {{mcp}} MCP",
       "searchPlaceholder": "Search Apps",
-      "featured": "Featured",
+      "featured": "Catalog",
       "loading": "Loading Apps...",
-      "empty": "No apps match this filter."
+      "empty": "No apps match this filter.",
+      "restartRequired": "Restart nanobot to apply updated apps and features."
+    },
+    "nanobotFeatures": {
+      "enabled": "Enabled",
+      "enable": "Enable",
+      "disable": "Disable",
+      "ready": "Ready",
+      "missingDependency": "Support missing",
+      "installSupport": "Install support",
+      "installConfirmTitle": "Install support for {{name}}?",
+      "installConfirmDescription": "nanobot will add what {{name}} needs, then turn it on. Continue?",
+      "installConfirmAction": "Install and enable",
+      "websocketRequired": "Required for WebUI",
+      "channelDisabled": "Channel is disabled",
+      "notEnabled": "Not enabled"
     },
     "automations": {
       "filters": {
@@ -497,6 +537,7 @@
       "emptyHint": "Create one from where it should run so nanobot keeps the right context.",
       "oneShot": "One-time",
       "systemTask": "System-managed automation",
+      "localTrigger": "Local trigger",
       "labels": {
         "schedule": "Schedule",
         "next": "Next",
@@ -555,11 +596,13 @@
         "weekdaysAt": "Weekdays at {{time}}",
         "hourlyAt": "Hourly at :{{minute}}",
         "hourlyWindow": "Hourly {{start}}-{{end}} at :{{minute}}",
+        "local": "Local trigger",
         "custom": "Custom schedule"
       },
       "next": {
         "paused": "Paused",
         "pending": "Running now",
+        "local": "Waiting for trigger",
         "none": "No next run"
       },
       "message": {
@@ -696,11 +739,13 @@
       "every": "Every {{duration}}",
       "cron": "Cron {{expr}}",
       "cronWithTz": "Cron {{expr}} · {{tz}}",
+      "local": "Local trigger",
       "unknown": "Custom schedule"
     },
     "next": {
       "label": "Next: {{time}}",
       "disabled": "Paused",
+      "local": "Waiting for trigger",
       "none": "No next run"
     }
   },
@@ -795,12 +840,14 @@
         "every": "Every {{duration}}",
         "cron": "Cron {{expr}}",
         "cronWithTz": "Cron {{expr}} · {{tz}}",
+        "local": "Local trigger",
         "unknown": "Custom schedule"
       },
       "next": {
         "label": "{{time}}",
         "pending": "Runs shortly",
         "disabled": "Paused",
+        "local": "Waiting for trigger",
         "none": "No next run"
       }
     },
@@ -918,9 +965,17 @@
             "title": "Restore memory",
             "description": "Revert memory to a previous Dream snapshot."
           },
+          "dream_prompt": {
+            "title": "Dream memory",
+            "description": "Tell Dream how to organize this workspace's memory."
+          },
           "goal": {
             "title": "Long-running goal",
             "description": "Tell the agent to treat this as a sustained multi-step goal."
+          },
+          "trigger": {
+            "title": "Create local trigger",
+            "description": "Create a CLI trigger bound to this chat session."
           },
           "help": {
             "title": "Show help",
@@ -1054,11 +1109,5 @@
       "usePath": "Use Path",
       "absolutePathRequired": "Enter an absolute folder path on this machine."
     }
-  },
-  "windowControls": {
-    "minimize": "Minimize",
-    "maximize": "Maximize",
-    "restore": "Restore",
-    "close": "Close"
   }
 }

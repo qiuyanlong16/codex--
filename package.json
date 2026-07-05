@@ -1,8 +1,8 @@
 {
   "name": "by-claw-nanobot",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
-  "description": "by-claw-nanobot desktop product - nanobot AI agent integration",
+  "description": "codex-- desktop product - nanobot AI agent integration",
   "packageManager": "pnpm@9.15.4",
   "engines": {
     "node": ">=22.16.0",
@@ -28,7 +28,16 @@
   },
   "main": "packages/shell/dist/main/index.js",
   "devDependencies": {
+    "@commitlint/cli": "^21.2.0",
+    "@commitlint/config-conventional": "^21.2.0",
+    "concurrently": "9.0.0",
     "electron-builder": "^26.15.3",
-    "esbuild": "^0.28.1"
+    "esbuild": "^0.28.1",
+    "lint-staged": "^17.0.8",
+    "png-to-ico": "^3.0.1",
+    "png2icons": "^2.0.1",
+    "prettier": "^3.9.4",
+    "sharp": "^0.35.3",
+    "tar": "7.4.3"
   }
 }

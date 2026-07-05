@@ -6,7 +6,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { Copy, Minus, PanelLeft, Square } from "lucide-react";
+import { Moon, PanelLeft, Sun } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { DeleteConfirm } from "@/components/DeleteConfirm";
 import { RenameChatDialog } from "@/components/RenameChatDialog";
@@ -20,12 +20,17 @@ import { useSessions } from "@/hooks/useSessions";
 import { useDeferredTitleRefresh } from "@/hooks/useDeferredTitleRefresh";
 import { useSidebarState } from "@/hooks/useSidebarState";
 import { useSkills } from "@/hooks/useSkills";
-import { ThemeProvider, useTheme } from "@/hooks/useTheme";
+import { StartupShell } from "@/components/startup/StartupShell";
+import { useNativeBootGate } from "@/hooks/useNativeBootGate";
+import { useElectronGatewayUrl } from "@/hooks/useElectronGateway";
+import { HostBrandMark } from "@/components/host/HostBrandMark";
+import { isMacNativeHost, useNativeHostPlatform } from "@/hooks/useNativeHostPlatform";
 import { cn } from "@/lib/utils";
 import {
   clearSavedSecret,
   deriveWsUrl,
   fetchBootstrap,
+  isTransientBootstrapError,
   loadSavedSecret,
   saveSecret,
 } from "@/lib/bootstrap";
@@ -44,6 +49,16 @@ import type {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { fetchSettings, fetchWorkspaces } from "@/lib/api";
+import { getElectronApi, isLikelyElectronShell } from "@/lib/electron-host";
+import { resolveBootstrapBaseUrl } from "@/lib/gateway-url";
+import { titleBarPayloadForStartup, titleBarPayloadForTheme } from "@/lib/title-bar";
+import {
+  ThemeProvider,
+  useTheme,
+  readInitialTheme,
+  applyDocumentTheme,
+  syncNativeTitleBarWithRetry,
+} from "@/hooks/useTheme";
 import {
   createRuntimeHost,
   getHostApi,
@@ -295,78 +310,6 @@ function normalizeWorkspaceScope(scope: WorkspaceScopePayload): WorkspaceScopePa
   };
 }
 
-/**
- * Detect Electron via user-agent — reliable regardless of preload timing.
- */
-function isElectron(): boolean {
-  if (typeof navigator === "undefined") return false;
-  return /electron/i.test(navigator.userAgent);
-}
-
-/**
- * Native window control buttons (minimize / maximize-restore / close).
- * Rendered whenever running inside Electron — independent of runtime surface.
- */
-function WindowControls() {
-  const [maximized, setMaximized] = useState(false);
-
-  useEffect(() => {
-    if (!isElectron()) return;
-    const api = window.electronAPI?.app;
-    if (!api) return;
-    void api.isMaximized().then((result) => setMaximized(result.maximized));
-    const unsubscribe = api.onMaximizeChanged((payload) => {
-      setMaximized(payload.maximized);
-    });
-    return unsubscribe;
-  }, []);
-
-  if (!isElectron()) return null;
-
-  return (
-    <div className="host-no-drag pointer-events-auto absolute right-0 top-0 z-50 flex h-11">
-      <button
-        type="button"
-        aria-label="Minimize"
-        onClick={() => void window.electronAPI?.app.minimizeWindow()}
-        className="flex h-full w-[46px] items-center justify-center text-foreground/70 transition-colors hover:bg-foreground/10 hover:text-foreground"
-      >
-        <Minus className="h-4 w-4" strokeWidth={1.5} />
-      </button>
-      <button
-        type="button"
-        aria-label={maximized ? "Restore" : "Maximize"}
-        onClick={() => void window.electronAPI?.app.maximizeWindow()}
-        className="flex h-full w-[46px] items-center justify-center text-foreground/70 transition-colors hover:bg-foreground/10 hover:text-foreground"
-      >
-        {maximized
-          ? <Copy className="h-3.5 w-3.5" strokeWidth={1.5} />
-          : <Square className="h-3.5 w-3.5" strokeWidth={1.5} />}
-      </button>
-      <button
-        type="button"
-        aria-label="Close"
-        onClick={() => void window.electronAPI?.app.closeWindow()}
-        className="flex h-full w-[46px] items-center justify-center text-foreground/70 transition-colors hover:bg-[#e81123] hover:text-white"
-      >
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          width="12"
-          height="12"
-          viewBox="0 0 12 12"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.25"
-          strokeLinecap="round"
-        >
-          <line x1="1" y1="1" x2="11" y2="11" />
-          <line x1="11" y1="1" x2="1" y2="11" />
-        </svg>
-      </button>
-    </div>
-  );
-}
-
 function HostChrome({
   onToggleSidebar,
   onSidebarPreviewEnter,
@@ -383,7 +326,16 @@ function HostChrome({
   const { t } = useTranslation();
 
   return (
-    <header className="host-drag-region pointer-events-none absolute inset-x-0 top-0 z-40 h-11 bg-transparent text-foreground/90">
+    <>
+      <div
+        className="host-drag-region absolute inset-x-0 top-0 z-40 h-11 bg-transparent"
+        aria-hidden
+      />
+      <header className="pointer-events-none absolute inset-x-0 top-0 z-50 h-11 bg-transparent text-foreground/90">
+      <HostBrandMark
+        className="absolute left-4 top-0 z-[51] h-11 max-w-[92px] items-center"
+        surface="chrome"
+      />
       {onToggleSidebar ? (
         <Button
           type="button"
@@ -407,21 +359,50 @@ function HostChrome({
         </div>
       ) : null}
     </header>
+    </>
   );
 }
 
 export default function App() {
   const { t } = useTranslation();
+  const nativeBoot = useNativeBootGate();
+  const gatewayUrl = useElectronGatewayUrl();
+  const electronShell = isLikelyElectronShell();
   const [state, setState] = useState<BootState>({ status: "loading" });
   const bootstrapSecretRef = useRef("");
+  const electronBootstrapStartedRef = useRef(false);
+
+  const showStartupShell =
+    electronShell
+    && (nativeBoot.blocking
+      || !gatewayUrl
+      || state.status === "loading"
+      || state.status === "error");
+
+  useEffect(() => {
+    if (!electronShell) {
+      const theme = readInitialTheme();
+      applyDocumentTheme(theme);
+      return syncNativeTitleBarWithRetry(titleBarPayloadForTheme(theme));
+    }
+    if (showStartupShell) {
+      const startupTheme = readInitialTheme();
+      applyDocumentTheme(startupTheme);
+      return syncNativeTitleBarWithRetry(titleBarPayloadForStartup(startupTheme));
+    }
+    return syncNativeTitleBarWithRetry(titleBarPayloadForTheme(readInitialTheme()));
+  }, [electronShell, showStartupShell]);
 
   const refreshReadyClient = useCallback(
     async (client: NanobotClient, fallbackSurface: RuntimeSurface) => {
-      const boot = await fetchBootstrap("", bootstrapSecretRef.current);
+      const bootBase = resolveBootstrapBaseUrl(gatewayUrl);
+      const boot = await fetchBootstrap(bootBase, bootstrapSecretRef.current);
       const url = deriveWsUrl(boot.ws_path, boot.token, boot.ws_url);
-      const runtimeSurface = boot.runtime_surface
-        ? toRuntimeSurface(boot.runtime_surface)
-        : fallbackSurface;
+      const runtimeSurface = isLikelyElectronShell()
+        ? "native"
+        : boot.runtime_surface
+          ? toRuntimeSurface(boot.runtime_surface)
+          : fallbackSurface;
       const runtimeHost = createRuntimeHost(runtimeSurface, boot.runtime_capabilities);
       const tokenExpiresAt = bootstrapTokenExpiresAt(boot.expires_in);
       if (runtimeHost.socketFactory) {
@@ -442,50 +423,73 @@ export default function App() {
       );
       return { token: boot.token, url };
     },
-    [],
+    [electronShell, gatewayUrl],
   );
 
   const bootstrapWithSecret = useCallback(
-    (secret: string) => {
+    (secret: string, baseUrl = "") => {
       let cancelled = false;
       (async () => {
         setState({ status: "loading" });
-        try {
-          const boot = await fetchBootstrap("", secret);
+        const bootBase = resolveBootstrapBaseUrl(baseUrl || gatewayUrl);
+        const useGateway = electronShell && (baseUrl || gatewayUrl);
+        const maxAttempts = useGateway ? 90 : 1;
+        for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
           if (cancelled) return;
-          if (secret) saveSecret(secret);
-          const url = deriveWsUrl(boot.ws_path, boot.token, boot.ws_url);
-          const runtimeSurface = toRuntimeSurface(boot.runtime_surface);
-          const runtimeHost = createRuntimeHost(runtimeSurface, boot.runtime_capabilities);
-          const client = new NanobotClient({
-            url,
-            socketFactory: runtimeHost.socketFactory,
-            onReauth: async () => {
-              try {
-                const refreshed = await refreshReadyClient(client, runtimeSurface);
-                return refreshed.url;
-              } catch {
-                return null;
-              }
-            },
-          });
-          bootstrapSecretRef.current = secret;
-          client.connect();
-          setState({
-            status: "ready",
-            client,
-            token: boot.token,
-            tokenExpiresAt: bootstrapTokenExpiresAt(boot.expires_in),
-            modelName: boot.model_name ?? null,
-            runtimeSurface,
-          });
-        } catch (e) {
-          if (cancelled) return;
-          const msg = (e as Error).message;
-          if (msg.includes("HTTP 401") || msg.includes("HTTP 403")) {
-            setState({ status: "auth", failed: !!secret });
-          } else {
+          try {
+            const boot = await fetchBootstrap(
+              bootBase,
+              secret,
+              useGateway ? 5_000 : undefined,
+            );
+            if (cancelled) return;
+            if (secret) saveSecret(secret);
+            const url = deriveWsUrl(boot.ws_path, boot.token, boot.ws_url);
+            const runtimeSurface = isLikelyElectronShell()
+              ? "native"
+              : toRuntimeSurface(boot.runtime_surface);
+            const runtimeHost = createRuntimeHost(runtimeSurface, boot.runtime_capabilities);
+            const client = new NanobotClient({
+              url,
+              socketFactory: runtimeHost.socketFactory,
+              onReauth: async () => {
+                try {
+                  const refreshed = await refreshReadyClient(client, runtimeSurface);
+                  return refreshed.url;
+                } catch {
+                  return null;
+                }
+              },
+            });
+            bootstrapSecretRef.current = secret;
+            client.connect();
+            setState({
+              status: "ready",
+              client,
+              token: boot.token,
+              tokenExpiresAt: bootstrapTokenExpiresAt(boot.expires_in),
+              modelName: boot.model_name ?? null,
+              runtimeSurface,
+            });
+            return;
+          } catch (e) {
+            if (cancelled) return;
+            const msg = (e as Error).message;
+            if (msg.includes("HTTP 401") || msg.includes("HTTP 403")) {
+              setState({ status: "auth", failed: !!secret });
+              return;
+            }
+            if (electronShell && isTransientBootstrapError(msg) && attempt < maxAttempts - 1) {
+              await new Promise((resolve) => {
+                window.setTimeout(resolve, 500 + attempt * 100);
+              });
+              continue;
+            }
+            if (electronShell) {
+              electronBootstrapStartedRef.current = false;
+            }
             setState({ status: "error", message: msg });
+            return;
           }
         }
       })();
@@ -493,7 +497,7 @@ export default function App() {
         cancelled = true;
       };
     },
-    [refreshReadyClient],
+    [electronShell, gatewayUrl, refreshReadyClient],
   );
 
   useEffect(() => {
@@ -513,9 +517,58 @@ export default function App() {
   }, [refreshReadyClient, state]);
 
   useEffect(() => {
+    if (electronShell) {
+      if (nativeBoot.blocking) return;
+      if (!gatewayUrl) return;
+      if (electronBootstrapStartedRef.current) return;
+      electronBootstrapStartedRef.current = true;
+      const saved = loadSavedSecret();
+      return bootstrapWithSecret(saved, gatewayUrl);
+    }
     const saved = loadSavedSecret();
     return bootstrapWithSecret(saved);
-  }, [bootstrapWithSecret]);
+  }, [bootstrapWithSecret, nativeBoot.blocking, electronShell, gatewayUrl]);
+
+  const handleStartupRetry = useCallback(() => {
+    const api = getElectronApi();
+    if (nativeBoot.failed) {
+      electronBootstrapStartedRef.current = false;
+      if (api) void api.app.retryStartup();
+      return;
+    }
+    if (state.status === "error") {
+      electronBootstrapStartedRef.current = false;
+      setState({ status: "loading" });
+      const saved = loadSavedSecret();
+      if (gatewayUrl) bootstrapWithSecret(saved, gatewayUrl);
+    }
+  }, [bootstrapWithSecret, gatewayUrl, nativeBoot.failed, state.status]);
+
+  if (showStartupShell) {
+    const bootstrapFailed =
+      state.status === "error"
+        ? {
+            code: state.message,
+            message: state.message,
+            i18nKey: "startup.gatewayError",
+          }
+        : null;
+    const failed = nativeBoot.failed ?? bootstrapFailed;
+    const phase = failed
+      ? "failed"
+      : !gatewayUrl
+        ? nativeBoot.phase
+        : state.status === "loading"
+          ? "ready"
+          : nativeBoot.phase;
+    return (
+      <StartupShell
+        phase={phase}
+        failed={failed}
+        onRetry={handleStartupRetry}
+      />
+    );
+  }
 
   if (state.status === "loading") {
     return (
@@ -541,6 +594,19 @@ export default function App() {
     );
   }
   if (state.status === "error") {
+    if (electronShell) {
+      return (
+        <StartupShell
+          phase="failed"
+          failed={{
+            code: state.message,
+            message: state.message,
+            i18nKey: "startup.gatewayError",
+          }}
+          onRetry={handleStartupRetry}
+        />
+      );
+    }
     return (
       <div className="flex h-full w-full items-center justify-center px-4 text-center">
         <div className="flex max-w-md flex-col items-center gap-3">
@@ -663,7 +729,11 @@ function Shell({
   const hostSidebarPreviewCloseTimerRef = useRef<number | null>(null);
   const effectiveRuntimeSurface =
     settingsSnapshot?.surface ?? settingsSnapshot?.runtime_surface ?? runtimeSurface;
-  const showHostChrome = effectiveRuntimeSurface === "native";
+  const showHostChrome =
+    isLikelyElectronShell() || getElectronApi() != null || effectiveRuntimeSurface === "native";
+  const nativeHostPlatform = useNativeHostPlatform();
+  const isMacHost = isMacNativeHost(showHostChrome, nativeHostPlatform);
+  const showHostTopChrome = showHostChrome && !isMacHost;
   const showMainSidebar = view !== "settings";
 
   const navigate = useCallback(
@@ -1474,8 +1544,6 @@ function Shell({
     onOpenAutomations,
     onOpenSkills,
     onOpenSearch: onOpenSessionSearch,
-    onToggleTheme: toggle,
-    theme,
     activeUtility: view === "apps" || view === "automations" || view === "skills" ? view : null,
     onToggleArchived,
     pinnedKeys: sidebarState.pinned_keys,
@@ -1500,10 +1568,12 @@ function Shell({
 
   useEffect(() => {
     document.documentElement.classList.toggle("native-host", showHostChrome);
+    document.documentElement.classList.toggle("native-host-mac", isMacHost);
     return () => {
       document.documentElement.classList.remove("native-host");
+      document.documentElement.classList.remove("native-host-mac");
     };
-  }, [showHostChrome]);
+  }, [showHostChrome, isMacHost]);
 
   return (
     <ThemeProvider theme={theme}>
@@ -1513,26 +1583,36 @@ function Shell({
           showHostChrome && "host-window-shell",
         )}
       >
-        {/* Global drag strip for frameless window — only in Electron */}
-        {isElectron() ? (
-          <div className="host-drag-region absolute inset-x-0 top-0 z-30 h-11" />
-        ) : null}
-        <WindowControls />
-        {showHostChrome ? (
+        {showHostTopChrome ? (
           <HostChrome
             onToggleSidebar={showMainSidebar ? toggleHostSidebar : undefined}
             onSidebarPreviewEnter={openHostSidebarPreview}
             onSidebarPreviewLeave={scheduleHostSidebarPreviewClose}
             sidebarOpen={hostSidebarOpen}
+            rightAction={
+              view === "chat" ? undefined : (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  aria-label={t("thread.header.toggleTheme")}
+                  onClick={toggle}
+                  className="h-8 w-8 rounded-full text-muted-foreground/85 hover:bg-accent/40 hover:text-foreground"
+                >
+                  {theme === "dark" ? (
+                    <Sun className="h-4 w-4" />
+                  ) : (
+                    <Moon className="h-4 w-4" />
+                  )}
+                </Button>
+              )
+            }
           />
         ) : null}
-        {/* Titlebar spacer — reserves 44px so content sits below the frameless overlay */}
-        {isElectron() ? <div className="h-11 w-full shrink-0" /> : null}
         <div
           className={cn(
-            "relative flex w-full overflow-hidden",
-            isElectron() && "h-[calc(100%-2.75rem)]",
-            !isElectron() && "h-full",
+            "relative flex h-full w-full overflow-hidden",
+            showHostTopChrome && "box-border pt-11",
           )}
         >
           {/* Host sidebar: in normal flow, so the thread area width stays honest. */}
@@ -1540,7 +1620,7 @@ function Shell({
             <aside
               data-testid="host-sidebar-flow"
               className={cn(
-                "relative z-20 hidden h-full shrink-0 overflow-hidden lg:block",
+                "relative z-20 hidden shrink-0 overflow-hidden lg:block",
                 "transition-[width] duration-300 ease-out",
               )}
               style={{
@@ -1559,7 +1639,9 @@ function Shell({
                   <Sidebar
                     {...sidebarProps}
                     collapsed={!showHostChrome && !hostSidebarOpen}
-                    hostChromeInset={showHostChrome}
+                    hostChromeInset={showHostTopChrome}
+                    hostSidebarGlass={showHostChrome}
+                    hostSidebarHeaderToggle={isMacHost}
                     onCollapse={closeHostSidebar}
                     onExpand={openHostSidebar}
                   />
@@ -1579,7 +1661,9 @@ function Shell({
               <div className="h-full w-full overflow-hidden host-sidebar-glass shadow-2xl">
                 <Sidebar
                   {...sidebarProps}
-                  hostChromeInset={showHostChrome}
+                  hostChromeInset={showHostTopChrome}
+                  hostSidebarGlass={showHostChrome}
+                  hostSidebarHeaderToggle={isMacHost}
                   onCollapse={closeHostSidebar}
                   onExpand={openHostSidebar}
                 />
@@ -1640,9 +1724,17 @@ function Shell({
                 onTurnEnd={onTurnEnd}
                 theme={theme}
                 onToggleTheme={toggle}
-                hideSidebarToggleForHostChrome
-                hideThemeButton
-                hostChromeTitleInset={hostSidebarCollapsed}
+                hideSidebarToggleForHostChrome={
+                  showHostTopChrome || (isMacHost && hostSidebarOpen)
+                }
+                hostChromeTitleInset={showHostTopChrome && hostSidebarCollapsed}
+                hostSidebarCollapsed={showHostChrome && hostSidebarCollapsed}
+                onHostSidebarPreviewEnter={
+                  isMacHost && hostSidebarCollapsed ? openHostSidebarPreview : undefined
+                }
+                onHostSidebarPreviewLeave={
+                  isMacHost && hostSidebarCollapsed ? scheduleHostSidebarPreviewClose : undefined
+                }
                 hideHeader={false}
                 workspaceScope={activeWorkspaceScope}
                 workspaceDefaultScope={workspaces?.default_scope ?? null}
@@ -1673,7 +1765,7 @@ function Shell({
                   onRestart={onRestart}
                   onNativeEngineRestart={onNativeEngineRestart}
                   isRestarting={isRestarting}
-                  hostChromeInset={showHostChrome}
+                  hostChromeInset={showHostTopChrome}
                 />
               </div>
             )}

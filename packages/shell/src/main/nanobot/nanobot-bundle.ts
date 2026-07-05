@@ -3,7 +3,10 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn, spawnSync } from "node:child_process";
+import { app } from "electron";
 import { resolveResourcesPath, getByclawHomeDir } from "../core/platform-paths.js";
+import { venvPythonPath, resolveSystemTarCandidates, fixPortablePyvenvCfg } from "../core/venv-paths.js";
+import { ensureMacVenvPortable } from "../core/mac-venv-portable.js";
 import { mainLog } from "../core/logging/main-logger.js";
 
 export type NanobotBundleLayout = "packaged" | "dev-checkout";
@@ -18,14 +21,44 @@ export type NanobotBundleRef = {
 const DEV_ROOT_ENV = "BYCLAW_NANOBOT_DEV_ROOT";
 const DEV_PYTHON_ENV = "BYCLAW_NANOBOT_DEV_PYTHON";
 
+function findSitePackagesInVenv(venvRoot: string): string | null {
+  const winPath = path.join(venvRoot, "Lib", "site-packages");
+  if (fs.existsSync(winPath)) return winPath;
+  const libDir = path.join(venvRoot, "lib");
+  if (!fs.existsSync(libDir)) return null;
+  for (const entry of fs.readdirSync(libDir)) {
+    if (entry.startsWith("python")) {
+      const candidate = path.join(libDir, entry, "site-packages");
+      if (fs.existsSync(candidate)) return candidate;
+    }
+  }
+  return null;
+}
+
 function pythonExecutableInDir(dir: string): string | null {
-  // Check both the directory root and the venv Scripts/ bin/ subdirectory.
+  // Standard venv layout (Windows Scripts/ or Unix bin/).
+  const venvCandidate = venvPythonPath(dir);
+  if (fs.existsSync(venvCandidate)) {
+    return venvCandidate;
+  }
+  if (process.platform !== "win32") {
+    const binDir = path.join(dir, "bin");
+    for (const name of ["python3", "python"]) {
+      const candidate = path.join(binDir, name);
+      if (fs.existsSync(candidate)) return candidate;
+    }
+  }
+
+  // Flat layout (python at bundle root).
   const searchDirs = [
     dir,
-    path.join(dir, "Scripts"), // Windows venv
-    path.join(dir, "bin"),     // Unix venv
+    path.join(dir, "Scripts"),
+    path.join(dir, "bin"),
   ];
-  const names = process.platform === "win32" ? ["python.exe", "python"] : ["python", "python.exe"];
+  const names =
+    process.platform === "win32"
+      ? ["python.exe", "python3", "python"]
+      : ["python3", "python", "python.exe"];
   for (const searchDir of searchDirs) {
     for (const name of names) {
       const candidate = path.join(searchDir, name);
@@ -74,7 +107,10 @@ function resolvePackagedBundle(root: string): NanobotBundleRef | null {
   const pythonExe = pythonExecutableInDir(root);
   if (!pythonExe) return null;
   // Check for nanobot module
-  const nanobotModulePath = path.join(root, "Lib", "site-packages", "nanobot");
+  const sitePackages = findSitePackagesInVenv(root);
+  const nanobotModulePath = sitePackages
+    ? path.join(sitePackages, "nanobot")
+    : path.join(root, "Lib", "site-packages", "nanobot");
   const hasNanobot = fs.existsSync(nanobotModulePath) || fs.existsSync(path.join(root, "nanobot"));
   return {
     root,
@@ -110,6 +146,42 @@ function devPythonOverride(): string | null {
  * directory (~/.by-claw-nanobot/resources/python-venv) using the system
  * tar.exe directly — no child-process unpack script, no bundled JS tar module.
  */
+/** Run tar.exe asynchronously (non-blocking). */
+function repairRuntimeDir(resourcesPath: string | null): string | null {
+  if (!resourcesPath) return null;
+  const dir = path.join(resourcesPath, "python-darwin-runtime");
+  return fs.existsSync(dir) ? dir : null;
+}
+
+async function finalizeExtractedVenv(fallbackVenv: string, fallbackPython: string): Promise<void> {
+  fixPortablePyvenvCfg(fallbackVenv);
+  if (process.platform === "darwin") {
+    const resourcesPath = resolveResourcesPath();
+    try {
+      ensureMacVenvPortable(fallbackVenv, repairRuntimeDir(resourcesPath));
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err);
+      mainLog.error("nanobot", "macOS venv portability repair failed", { detail });
+      throw err instanceof Error ? err : new Error(detail);
+    }
+  }
+  const probe = await runCommandAsync(fallbackPython, ["--version"]);
+  if (!probe.ok) {
+    mainLog.error("nanobot", "venv python probe failed", {
+      python: fallbackPython,
+      stderr: probe.stderr,
+      stdout: probe.stdout,
+    });
+    throw new Error(
+      `venv_python_broken: cannot execute ${fallbackPython}${probe.stderr ? `: ${probe.stderr.trim()}` : ""}`,
+    );
+  }
+  mainLog.info("nanobot", "venv ready", {
+    fallbackVenv,
+    pythonVersion: probe.stdout.trim(),
+  });
+}
+
 export async function ensureVenvExtracted(): Promise<void> {
   const resourcesPath = resolveResourcesPath();
   if (!resourcesPath) return;
@@ -118,10 +190,24 @@ export async function ensureVenvExtracted(): Promise<void> {
   const stateDir = getByclawHomeDir();
   const fallbackResources = path.join(stateDir, "resources");
   const fallbackVenv = path.join(fallbackResources, "python-venv");
-  const fallbackPython = path.join(fallbackVenv, "Scripts", "python.exe");
+  const fallbackPython = venvPythonPath(fallbackVenv);
 
-  // Already extracted?
-  if (fs.existsSync(fallbackPython)) return;
+  // Already extracted — still verify/repair (older builds shipped broken macOS venvs).
+  if (fs.existsSync(fallbackPython)) {
+    const probe = await runCommandAsync(fallbackPython, ["--version"]);
+    if (probe.ok) return;
+    mainLog.warn("nanobot", "existing venv python is broken; attempting macOS repair", {
+      python: fallbackPython,
+      stderr: probe.stderr.trim(),
+    });
+    if (process.platform === "darwin") {
+      await finalizeExtractedVenv(fallbackVenv, fallbackPython);
+      return;
+    }
+    throw new Error(
+      `venv_python_broken: cannot execute ${fallbackPython}${probe.stderr ? `: ${probe.stderr.trim()}` : ""}`,
+    );
+  }
 
   // Check for tar shards in the packaged resources/
   const manifestPath = path.join(resourcesPath, "python-venv_manifest.json");
@@ -139,6 +225,14 @@ export async function ensureVenvExtracted(): Promise<void> {
     target: fallbackVenv,
   });
 
+  // A previous failed extract can leave bin/lib without a usable interpreter.
+  if (!fs.existsSync(fallbackPython) && fs.existsSync(fallbackVenv)) {
+    mainLog.warn("nanobot", "removing incomplete venv before re-extract", {
+      fallbackVenv,
+    });
+    fs.rmSync(fallbackVenv, { recursive: true, force: true });
+  }
+
   try {
     fs.mkdirSync(fallbackResources, { recursive: true });
 
@@ -151,9 +245,9 @@ export async function ensureVenvExtracted(): Promise<void> {
     }
 
     // Extract each shard using system tar.exe (async).
-    const tarExe = resolveSystemTarExe();
+    const tarExe = await resolveSystemTarExe();
     if (!tarExe) {
-      mainLog.error("nanobot", "tar.exe not found on system, cannot extract venv");
+      mainLog.error("nanobot", "system tar not found, cannot extract venv");
       return;
     }
 
@@ -181,21 +275,24 @@ export async function ensureVenvExtracted(): Promise<void> {
     try { fs.unlinkSync(path.join(fallbackResources, "python-venv_manifest.json")); } catch { /* ignore */ }
 
     if (fs.existsSync(fallbackPython)) {
-      mainLog.info("nanobot", "venv extraction complete", { fallbackVenv });
+      await finalizeExtractedVenv(fallbackVenv, fallbackPython);
     } else {
       // List directory contents to help diagnose what went wrong
       let dirContents: string[] = [];
+      let binContents: string[] = [];
       try { dirContents = fs.readdirSync(fallbackVenv); } catch { /* ignore */ }
-      mainLog.error("nanobot", "venv extraction done but python.exe missing", {
+      try { binContents = fs.readdirSync(path.join(fallbackVenv, "bin")); } catch { /* ignore */ }
+      mainLog.error("nanobot", "venv extraction done but python interpreter missing", {
         fallbackVenv,
         dirContents,
+        binContents,
       });
-      throw new Error(`venv_extract_incomplete: python.exe not found at ${fallbackPython}, dir contents: ${dirContents.join(", ") || "(empty)"}`);
+      throw new Error(`venv_extract_incomplete: python not found at ${fallbackPython}, dir contents: ${dirContents.join(", ") || "(empty)"}`);
     }
   } catch (err) {
-    mainLog.error("nanobot", "venv extraction failed", {
-      detail: err instanceof Error ? err.message : String(err),
-    });
+    const detail = err instanceof Error ? err.message : String(err);
+    mainLog.error("nanobot", "venv extraction failed", { detail });
+    throw err instanceof Error ? err : new Error(detail);
   }
 }
 
@@ -203,7 +300,7 @@ export async function ensureVenvExtracted(): Promise<void> {
 function runTarAsync(tarExe: string, tarFile: string, cwd: string): Promise<void> {
   return new Promise((resolve, reject) => {
     const child = spawn(tarExe, ["-xf", tarFile, "-C", cwd], {
-      windowsHide: true,
+      windowsHide: process.platform === "win32",
     });
     let stderr = "";
     child.stderr?.on("data", (data) => { stderr += data.toString(); });
@@ -223,30 +320,35 @@ function runTarAsync(tarExe: string, tarFile: string, cwd: string): Promise<void
 
 /** Find a working tar.exe on the system (async). */
 async function resolveSystemTarExe(): Promise<string | null> {
-  const candidates = [
-    path.join(process.env.WINDIR || "C:\\Windows", "System32", "tar.exe"),
-    "tar.exe",
-  ];
-  for (const c of candidates) {
+  for (const candidate of resolveSystemTarCandidates()) {
     try {
-      if (c !== "tar.exe" && !fs.existsSync(c)) continue;
-      const version = await runCommandAsync(c, ["--version"]);
-      if (version !== null) return c;
-    } catch { /* try next */ }
+      if (candidate !== "tar" && candidate !== "tar.exe" && !fs.existsSync(candidate)) continue;
+      const version = await runCommandAsync(candidate, ["--version"]);
+      if (version.ok) return candidate;
+    } catch {
+      /* try next */
+    }
   }
   return null;
 }
 
 /** Run a command asynchronously and return stdout, or null on failure. */
-function runCommandAsync(cmd: string, args: string[]): Promise<string | null> {
+function runCommandAsync(
+  cmd: string,
+  args: string[],
+): Promise<{ ok: boolean; stdout: string; stderr: string }> {
   return new Promise((resolve) => {
-    const child = spawn(cmd, args, { windowsHide: true });
+    const child = spawn(cmd, args, { windowsHide: process.platform === "win32" });
     let stdout = "";
+    let stderr = "";
     child.stdout?.on("data", (data) => { stdout += data.toString(); });
+    child.stderr?.on("data", (data) => { stderr += data.toString(); });
     child.on("close", (code) => {
-      resolve(code === 0 ? stdout : null);
+      resolve({ ok: code === 0, stdout, stderr });
     });
-    child.on("error", () => resolve(null));
+    child.on("error", (err) => {
+      resolve({ ok: false, stdout, stderr: err.message });
+    });
   });
 }
 
@@ -254,7 +356,8 @@ function runCommandAsync(cmd: string, args: string[]): Promise<string | null> {
 export async function resolveNanobotBundle(): Promise<NanobotBundleRef | null> {
   // Only attempt venv extraction in dev mode (installer handles it in production).
   // In production, if venv is missing, we return missing — no startup extraction.
-  if (process.env.NODE_ENV === "development") {
+  const shouldExtract = process.env.NODE_ENV === "development" || app.isPackaged;
+  if (shouldExtract) {
     await ensureVenvExtracted();
   }
 

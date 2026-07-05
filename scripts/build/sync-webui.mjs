@@ -2,9 +2,10 @@
 /**
  * Sync nanobot WebUI source from vendor/nanobot/webui/ into packages/web/.
  *
- * The nanobot WebUI is a React+TypeScript SPA (TailwindCSS, shadcn/ui).
- * This script replaces the placeholder Vue app in packages/web/ with the
- * real React webui, ready for `vite build`.
+ * WARNING: This OVERWRITES packages/web/src/ entirely. Do NOT run during CI or
+ * release builds — codex-- customizations (Electron shell, StartupShell, etc.)
+ * live in packages/web and must remain the source of truth. Use only when
+ * re-importing upstream nanobot webui (set BYCLAW_PACK_SYNC_WEBUI=1).
  *
  * Steps:
  *   1. Remove Vue-specific files from packages/web/src/
@@ -215,6 +216,10 @@ const webPkg = {
   },
   devDependencies: {
     ...vendorPkg.devDependencies,
+    "@types/mdast": "^4.0.4",
+    "micromark-util-types": "^2.0.2",
+    "unified": "^11.0.5",
+    "micromark-extension-math": "^3.1.0",
   },
 };
 

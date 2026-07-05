@@ -4,15 +4,15 @@ import {
   Brain,
   CalendarClock,
   Menu,
-  Moon,
+  PanelLeft,
   Search,
   Settings,
   SquarePen,
-  Sun,
   Blocks,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
+import { HostBrandMark } from "@/components/host/HostBrandMark";
 import { ChatList } from "@/components/ChatList";
 import { ConnectionBadge } from "@/components/ConnectionBadge";
 import { Button } from "@/components/ui/button";
@@ -41,8 +41,6 @@ interface SidebarProps {
   onOpenSkills: () => void;
   onOpenAutomations: () => void;
   onOpenSearch: () => void;
-  onToggleTheme: () => void;
-  theme: "light" | "dark";
   activeUtility?: "apps" | "skills" | "automations" | null;
   onToggleArchived: () => void;
   onCollapse: () => void;
@@ -61,6 +59,8 @@ interface SidebarProps {
   archivedCount?: number;
   defaultWorkspacePath?: string | null;
   hostChromeInset?: boolean;
+  hostSidebarGlass?: boolean;
+  hostSidebarHeaderToggle?: boolean;
 }
 
 type NavigatorWithUserAgentData = Navigator & {
@@ -86,9 +86,7 @@ export function Sidebar(props: SidebarProps) {
   const collapsed = Boolean(props.collapsed);
   const toggleLabel = t("thread.header.toggleSidebar");
   const newChatShortcut = newChatShortcutLabel();
-  const themeLabel = props.theme === "dark"
-    ? t("sidebar.themeToggle.light")
-    : t("sidebar.themeToggle.dark");
+  const useSidebarGlass = Boolean(props.hostSidebarGlass);
 
   return (
     <nav
@@ -96,39 +94,58 @@ export function Sidebar(props: SidebarProps) {
       aria-label={t("sidebar.navigation")}
       className={cn(
         "flex h-full w-full min-w-0 flex-col text-sidebar-foreground",
-        props.hostChromeInset ? "bg-transparent" : "bg-sidebar",
-        !props.hostChromeInset && "border-r border-sidebar-border/60",
+        useSidebarGlass ? "bg-transparent" : "bg-sidebar",
+        !useSidebarGlass && "border-r border-sidebar-border/60",
       )}
     >
       <div
         className={cn(
-          "flex items-center px-3 pb-2.5",
+          "flex items-center gap-2 px-3 pb-2.5",
           props.hostChromeInset ? "pt-[2.85rem]" : "pt-3",
           collapsed ? "w-14 justify-start" : "justify-between",
         )}
       >
-        <button
-          type="button"
-          aria-label={collapsed ? toggleLabel : undefined}
-          aria-hidden={collapsed ? undefined : true}
-          title={collapsed ? toggleLabel : undefined}
-          onClick={collapsed ? props.onExpand : undefined}
-          tabIndex={collapsed ? 0 : -1}
-          className={cn(
-            "flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-xl transition-colors",
-            collapsed
-              ? "-ml-0.5 hover:bg-sidebar-accent/75"
-              : "pointer-events-none -ml-0.5",
-          )}
-        >
-          <img
-            src="/brand/nanobot_icon.png"
-            alt=""
-            className="h-8 w-8 select-none object-contain"
-            draggable={false}
+        {props.hostSidebarHeaderToggle && !collapsed ? (
+          <HostBrandMark
+            className="pointer-events-none min-w-0 flex-1 items-center"
+            surface="chrome"
           />
-        </button>
-        {!collapsed && !props.hostChromeInset && (
+        ) : (
+          <button
+            type="button"
+            aria-label={collapsed ? toggleLabel : undefined}
+            aria-hidden={collapsed ? undefined : true}
+            title={collapsed ? toggleLabel : undefined}
+            onClick={collapsed ? props.onExpand : undefined}
+            tabIndex={collapsed ? 0 : -1}
+            className={cn(
+              "flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-xl transition-colors",
+              collapsed
+                ? "-ml-0.5 hover:bg-sidebar-accent/75"
+                : "pointer-events-none -ml-0.5",
+            )}
+          >
+            <img
+              src="./brand/nanobot_icon.png"
+              alt=""
+              className="h-8 w-8 select-none object-contain"
+              draggable={false}
+            />
+          </button>
+        )}
+        {!collapsed && props.hostSidebarHeaderToggle ? (
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label={toggleLabel}
+            data-testid="host-sidebar-toggle"
+            onClick={props.onCollapse}
+            className="h-7 w-7 rounded-lg text-muted-foreground/85 hover:bg-sidebar-accent/75 hover:text-sidebar-foreground"
+          >
+            <PanelLeft className="h-[15px] w-[15px]" strokeWidth={1.75} />
+          </Button>
+        ) : null}
+        {!collapsed && !props.hostChromeInset && !props.hostSidebarHeaderToggle ? (
           <Button
             variant="ghost"
             size="icon"
@@ -138,7 +155,7 @@ export function Sidebar(props: SidebarProps) {
           >
             <Menu className="h-3.5 w-3.5" />
           </Button>
-        )}
+        ) : null}
       </div>
 
       <div
@@ -231,46 +248,6 @@ export function Sidebar(props: SidebarProps) {
         )}
       </div>
       <Separator className="bg-sidebar-border/50" />
-      {/* Theme toggle — sits just above Settings for quick access */}
-      <div
-        className={cn(
-          "flex items-center gap-1 px-2.5 py-1.5",
-          collapsed && "w-14 flex-col px-0",
-        )}
-      >
-        <Button
-          type="button"
-          variant="ghost"
-          aria-label={themeLabel}
-          onClick={props.onToggleTheme}
-          className={cn(
-            "group h-8 min-w-0 gap-2 overflow-hidden rounded-full font-medium text-sidebar-foreground/85 hover:bg-sidebar-accent/75 hover:text-sidebar-foreground",
-            "transition-[width,padding,border-radius,color,background-color] duration-300 ease-out",
-            collapsed
-              ? "w-9 justify-center gap-0 rounded-xl px-0"
-              : "w-full justify-start gap-2 px-3 text-[12.5px]",
-          )}
-        >
-          <span
-            className="flex shrink-0 items-center justify-center transition-transform duration-300 ease-out"
-            aria-hidden
-          >
-            {props.theme === "dark"
-              ? <Sun className="h-4 w-4" />
-              : <Moon className="h-4 w-4" />}
-          </span>
-          <span
-            className={cn(
-              "min-w-0 overflow-hidden truncate whitespace-nowrap transition-[max-width,opacity,transform] duration-200 ease-out",
-              collapsed
-                ? "max-w-0 -translate-x-1 opacity-0"
-                : "max-w-[12rem] translate-x-0 opacity-100",
-            )}
-          >
-            {themeLabel}
-          </span>
-        </Button>
-      </div>
       <div
         className={cn(
           "flex items-center gap-1 px-2.5 py-2.5 text-xs",

@@ -133,6 +133,9 @@ interface ThreadShellProps {
   onToggleTheme?: () => void;
   hideSidebarToggleForHostChrome?: boolean;
   hostChromeTitleInset?: boolean;
+  hostSidebarCollapsed?: boolean;
+  onHostSidebarPreviewEnter?: () => void;
+  onHostSidebarPreviewLeave?: () => void;
   hideThemeButton?: boolean;
   hideHeader?: boolean;
   workspaceScope?: WorkspaceScopePayload | null;
@@ -284,6 +287,9 @@ export function ThreadShell({
   onToggleTheme = () => {},
   hideSidebarToggleForHostChrome = false,
   hostChromeTitleInset = false,
+  hostSidebarCollapsed = false,
+  onHostSidebarPreviewEnter,
+  onHostSidebarPreviewLeave,
   hideThemeButton = false,
   hideHeader = false,
   workspaceScope = null,
@@ -810,6 +816,9 @@ export function ThreadShell({
             onToggleTheme={onToggleTheme}
             hideSidebarToggleForHostChrome={hideSidebarToggleForHostChrome}
             hostChromeTitleInset={hostChromeTitleInset}
+            hostSidebarCollapsed={hostSidebarCollapsed}
+            onHostSidebarPreviewEnter={onHostSidebarPreviewEnter}
+            onHostSidebarPreviewLeave={onHostSidebarPreviewLeave}
             hideThemeButton={hideThemeButton}
             minimal={!session && !loading}
             promptNavigatorAction={promptNavigatorAction}

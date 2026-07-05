@@ -1,3 +1,4 @@
+import path from "node:path";
 import log from "electron-log";
 
 const mainLog = {
@@ -18,6 +19,9 @@ const mainLog = {
 export function initMainLogger(userDataPath: string, isDev: boolean): void {
   log.transports.file.level = isDev ? "debug" : "info";
   log.transports.console.level = isDev ? "debug" : "warn";
+  log.transports.file.resolvePathFn = () => path.join(userDataPath, "main.log");
+  log.transports.file.maxSize = 5 * 1024 * 1024;
+  log.info("[logging] main log file", { path: path.join(userDataPath, "main.log") });
 }
 
 export { mainLog };

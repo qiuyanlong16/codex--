@@ -1,5 +1,6 @@
 import type { BootstrapResponse } from "./types";
 import { fetchWithTimeout } from "./http";
+import { getGatewayBaseUrl } from "./gateway-url";
 
 const SECRET_STORAGE_KEY = "nanobot-webui.bootstrap-secret";
 
@@ -34,7 +35,37 @@ export function clearSavedSecret(): void {
 /**
  * Fetch a short-lived token + the WebSocket path from the gateway's
  * ``/webui/bootstrap`` endpoint.
+ *
+ * Never uses a bare ``/webui/bootstrap`` path on ``file://`` — that resolves to
+ * ``file:///C:/webui/bootstrap`` on Windows packaged Electron.
  */
+export function resolveBootstrapFetchUrl(baseUrl = ""): string {
+  const trimmed = baseUrl.trim().replace(/\/$/, "");
+  if (/^https?:\/\//i.test(trimmed)) {
+    return `${trimmed}/webui/bootstrap`;
+  }
+
+  const gateway = getGatewayBaseUrl().trim().replace(/\/$/, "");
+  if (gateway) {
+    return `${gateway}/webui/bootstrap`;
+  }
+
+  if (typeof window !== "undefined") {
+    if (window.location.protocol === "file:") {
+      throw new Error("gateway URL not ready");
+    }
+    if (window.location.port === "5173") {
+      return "/webui/bootstrap";
+    }
+    const origin = window.location.origin;
+    if (origin && origin !== "null") {
+      return `${origin}/webui/bootstrap`;
+    }
+  }
+
+  throw new Error("cannot resolve bootstrap URL");
+}
+
 export async function fetchBootstrap(
   baseUrl: string = "",
   secret: string = "",
@@ -44,7 +75,7 @@ export async function fetchBootstrap(
   if (secret) {
     headers["X-Nanobot-Auth"] = secret;
   }
-  const res = await fetchWithTimeout(`${baseUrl}/webui/bootstrap`, {
+  const res = await fetchWithTimeout(resolveBootstrapFetchUrl(baseUrl), {
     method: "GET",
     credentials: "same-origin",
     headers,
@@ -57,6 +88,13 @@ export async function fetchBootstrap(
     throw new Error("bootstrap response missing token or ws_path");
   }
   return body;
+}
+
+const TRANSIENT_BOOTSTRAP_ERROR_RE =
+  /failed to fetch|networkerror|network request failed|timed out|http 502|http 503|http 504/i;
+
+export function isTransientBootstrapError(message: string): boolean {
+  return TRANSIENT_BOOTSTRAP_ERROR_RE.test(message);
 }
 
 /** Derive a WebSocket URL from the current window location and the server-provided path.
@@ -73,6 +111,11 @@ export function deriveWsUrl(
 ): string {
   const query = `?token=${encodeURIComponent(token)}`;
   const path = wsPath && wsPath.startsWith("/") ? wsPath : `/${wsPath || ""}`;
+  const gatewayBase = getGatewayBaseUrl();
+  if (typeof window !== "undefined" && window.location.port === "5173" && gatewayBase) {
+    const host = new URL(gatewayBase).host;
+    return `ws://${host}${path}${query}`;
+  }
   if (typeof window !== "undefined" && window.location.port === "5173") {
     const host = window.location.hostname.includes(":")
       ? `[${window.location.hostname}]`
@@ -83,8 +126,13 @@ export function deriveWsUrl(
     const join = wsUrl.includes("?") ? "&" : "?";
     return `${wsUrl}${join}token=${encodeURIComponent(token)}`;
   }
+  if (typeof window !== "undefined" && window.location.protocol === "file:") {
+    const host = gatewayBase ? new URL(gatewayBase).host : "127.0.0.1:8766";
+    return `ws://${host}${path}${query}`;
+  }
   if (typeof window === "undefined") {
-    return `ws://127.0.0.1:8765${path}${query}`;
+    const host = gatewayBase ? new URL(gatewayBase).host : "127.0.0.1:8766";
+    return `ws://${host}${path}${query}`;
   }
   const scheme = window.location.protocol === "https:" ? "wss" : "ws";
   const host = window.location.host;

@@ -1,9 +1,14 @@
 import { app, ipcMain, shell } from "electron";
 import { IPC, IPC_EVENTS } from "@byclaw-nanobot/shared";
-import type { LogWriteRequest } from "@byclaw-nanobot/shared";
+import type { LogWriteRequest, TitleBarThemePayload } from "@byclaw-nanobot/shared";
 import { getStartupState } from "../core/startup-state.js";
 
-export function registerAppHandlers(): void {
+export type AppHandlerOptions = {
+  applyTitleBarTheme?: (payload: TitleBarThemePayload) => void;
+  retryStartup?: () => Promise<void>;
+};
+
+export function registerAppHandlers(options: AppHandlerOptions = {}): void {
   ipcMain.handle(IPC.app.getInfo, () => {
     return {
       version: app.getVersion(),
@@ -15,6 +20,17 @@ export function registerAppHandlers(): void {
 
   ipcMain.handle(IPC.startup.getState, () => {
     return getStartupState();
+  });
+
+  ipcMain.handle(IPC.app.setTitleBarTheme, (_event, payload: TitleBarThemePayload) => {
+    options.applyTitleBarTheme?.(payload);
+    return { ok: true };
+  });
+
+  ipcMain.handle(IPC.app.retryStartup, async () => {
+    if (!options.retryStartup) return { ok: false };
+    await options.retryStartup();
+    return { ok: true };
   });
 }
 

@@ -40,6 +40,29 @@
       "description": "nanobot Web UI —— 与你的 nanobot 工作区对话。"
     }
   },
+  "startup": {
+    "booting": {
+      "title": "正在启动 codex--",
+      "hint": "正在配置本地 AI Agent，通常只需几秒钟。"
+    },
+    "failed": {
+      "title": "无法启动 codex--",
+      "hint": "请检查模型供应商配置与日志，然后重试。",
+      "gatewayHint": "Gateway 已启动，但界面无法连接。请查看日志后重试。",
+      "gatewayError": "连接错误",
+      "error": "启动错误",
+      "logDir": "日志目录",
+      "retry": "重试",
+      "openLogs": "打开日志文件夹"
+    },
+    "phases": {
+      "firstRun": "准备运行环境",
+      "spawning": "启动 Gateway",
+      "healthz": "健康检查",
+      "readyz": "加载工具与模型",
+      "ready": "正在连接"
+    }
+  },
   "sidebar": {
     "navigation": "侧边栏导航",
     "collapse": "收起侧边栏",
@@ -50,10 +73,6 @@
     "noSearchResults": "没有匹配的会话。",
     "recent": "最近对话",
     "settings": "设置",
-    "themeToggle": {
-      "light": "浅色模式",
-      "dark": "深色模式"
-    },
     "language": {
       "label": "语言",
       "ariaLabel": "切换语言"
@@ -388,6 +407,9 @@
       "hideApiKey": "隐藏 API key",
       "noConfiguredProviders": "没有已配置的服务商",
       "configureFirst": "请先在 BYOK 里配置服务商。",
+      "removeProvider": "移除",
+      "removeConfirm": "确定移除 {{provider}}？当前默认模型将回退到 {{fallback}}。",
+      "removeLastProvider": "至少保留一个已配置的服务商。",
       "openByok": "打开 BYOK",
       "tabs": {
         "ariaLabel": "BYOK 凭证类型",
@@ -462,18 +484,36 @@
       "missingCredential": "启用图片生成前请先配置此提供商。"
     },
     "apps": {
-      "description": "添加 nanobot 可在聊天中使用的 App CLI 和 MCP 服务。",
+      "description": "启用插件、本地应用适配器和已连接的工具服务。",
       "cliLabel": "CLI",
       "mcpLabel": "MCP",
+      "channelLabel": "渠道",
+      "featureLabel": "能力",
       "filterAll": "全部",
+      "filterPlugins": "插件",
       "filterCli": "CLI 应用",
       "filterMcp": "MCP 服务",
       "enabledSummary": "已启用 {{count}} 个",
-      "caption": "{{cli}} 个 CLI · {{mcp}} 个 MCP",
+      "caption": "{{plugins}} 个插件 · {{cli}} 个 CLI · {{mcp}} 个 MCP",
       "searchPlaceholder": "搜索应用",
-      "featured": "精选",
+      "featured": "应用目录",
       "loading": "正在加载应用...",
-      "empty": "没有匹配的应用。"
+      "empty": "没有匹配的应用。",
+      "restartRequired": "重启 nanobot 以应用更新后的应用和能力。"
+    },
+    "nanobotFeatures": {
+      "enabled": "已启用",
+      "enable": "启用",
+      "disable": "禁用",
+      "ready": "就绪",
+      "missingDependency": "缺少支持包",
+      "installSupport": "安装支持包",
+      "installConfirmTitle": "安装 {{name}} 支持？",
+      "installConfirmDescription": "将安装并启用 {{name}} 支持。是否继续？",
+      "installConfirmAction": "安装并启用",
+      "websocketRequired": "WebUI 必需",
+      "channelDisabled": "渠道已禁用",
+      "notEnabled": "未启用"
     },
     "automations": {
       "filters": {
@@ -497,6 +537,7 @@
       "emptyHint": "请从它应该运行的来源处创建，这样 nanobot 才能保留正确上下文。",
       "oneShot": "一次性",
       "systemTask": "系统管理的自动任务",
+      "localTrigger": "本地触发器",
       "labels": {
         "schedule": "计划",
         "next": "下次",
@@ -555,11 +596,13 @@
         "weekdaysAt": "工作日 {{time}}",
         "hourlyAt": "每小时第 {{minute}} 分钟",
         "hourlyWindow": "{{start}}-{{end}} 点每小时第 {{minute}} 分钟",
+        "local": "本地触发器",
         "custom": "自定义计划"
       },
       "next": {
         "paused": "已暂停",
         "pending": "正在运行",
+        "local": "等待触发",
         "none": "没有下次运行"
       },
       "message": {
@@ -696,11 +739,13 @@
       "every": "每 {{duration}}",
       "cron": "Cron {{expr}}",
       "cronWithTz": "Cron {{expr}} · {{tz}}",
+      "local": "本地触发器",
       "unknown": "自定义计划"
     },
     "next": {
       "label": "下次：{{time}}",
       "disabled": "已暂停",
+      "local": "等待触发",
       "none": "没有下次运行"
     }
   },
@@ -795,12 +840,14 @@
         "every": "每 {{duration}}",
         "cron": "Cron {{expr}}",
         "cronWithTz": "Cron {{expr}} · {{tz}}",
+        "local": "本地触发器",
         "unknown": "自定义计划"
       },
       "next": {
         "label": "下次 {{time}}",
         "pending": "即将执行",
         "disabled": "已暂停",
+        "local": "等待触发",
         "none": "没有下次运行"
       }
     },
@@ -917,9 +964,17 @@
             "title": "恢复记忆",
             "description": "将记忆恢复到之前的 Dream 快照。"
           },
+          "dream_prompt": {
+            "title": "Dream 记忆",
+            "description": "设置 Dream 如何整理当前工作区的记忆。"
+          },
           "goal": {
             "title": "长期目标",
             "description": "让助手把当前请求当作需要多步骤持续推进的目标。"
+          },
+          "trigger": {
+            "title": "创建本地触发器",
+            "description": "创建绑定到当前聊天会话的 CLI 触发器。"
           },
           "help": {
             "title": "查看帮助",
@@ -1054,11 +1109,5 @@
       "usePath": "使用路径",
       "absolutePathRequired": "请输入这台机器上的绝对文件夹路径。"
     }
-  },
-  "windowControls": {
-    "minimize": "最小化",
-    "maximize": "最大化",
-    "restore": "向下还原",
-    "close": "关闭"
   }
 }

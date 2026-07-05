@@ -1,0 +1,99 @@
+name: Build
+
+on:
+  push:
+    branches: [feat/cross-platform, feat/installer-branding, main, master]
+  pull_request:
+    branches: [feat/cross-platform, feat/installer-branding, main, master]
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build:shared
+      - run: pnpm --filter @byclaw-nanobot/web test
+
+  build-windows:
+    runs-on: windows-latest
+    needs: test
+    env:
+      BYCLAW_TARGET_PLATFORM: win32
+      BYCLAW_TARGET_ARCH: x64
+      PNPM_CONFIG_FROZEN_LOCKFILE: "false"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+      - uses: actions/setup-python@v5
+        id: setup-python
+        with:
+          python-version: "3.12"
+      - run: python --version && python3 --version
+      - run: pnpm install --frozen-lockfile
+      - run: node scripts/build/clone-nanobot.mjs
+      - run: node scripts/build/ensure-brand-icons.mjs
+      - run: pnpm build:shared
+      - run: pnpm build:web
+      - run: pnpm build:shell
+      - run: node scripts/build/create-python-venv.mjs
+        env:
+          BYCLAW_PYTHON_EXE: ${{ steps.setup-python.outputs.python-path }}
+      - run: node scripts/build/pack-python-venv.mjs
+      - run: node scripts/build/bundle-cached.mjs
+        env:
+          BYCLAW_PACK_SKIP_NANOBOT: "1"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: codex---windows-x64
+          path: dist-release/*.exe
+          if-no-files-found: error
+
+  build-macos:
+    runs-on: macos-latest
+    needs: test
+    env:
+      BYCLAW_TARGET_PLATFORM: darwin
+      BYCLAW_TARGET_ARCH: arm64
+      CSC_IDENTITY_AUTO_DISCOVERY: "false"
+      PNPM_CONFIG_FROZEN_LOCKFILE: "false"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+      - uses: actions/setup-python@v5
+        id: setup-python
+        with:
+          python-version: "3.12"
+      - run: python --version && python3 --version
+      - run: pnpm install --frozen-lockfile
+      - run: node scripts/build/clone-nanobot.mjs
+      - run: node scripts/build/ensure-brand-icons.mjs
+      - run: pnpm build:shared
+      - run: pnpm build:web
+      - run: pnpm build:shell
+      - run: node scripts/build/create-python-venv.mjs
+        env:
+          BYCLAW_PYTHON_EXE: ${{ steps.setup-python.outputs.python-path }}
+      - run: node scripts/build/pack-python-venv.mjs
+      - run: node scripts/build/bundle-cached.mjs
+        env:
+          BYCLAW_PACK_SKIP_NANOBOT: "1"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: codex---macos-arm64
+          path: dist-release/*.dmg
+          if-no-files-found: error

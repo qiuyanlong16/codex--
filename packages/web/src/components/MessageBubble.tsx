@@ -27,6 +27,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { resolveGatewayHttpUrl } from "@/lib/gateway-url";
 import { cn } from "@/lib/utils";
 import { copyTextToClipboard } from "@/lib/clipboard";
 import { formatTurnLatency } from "@/lib/format";
@@ -167,8 +168,14 @@ export function MessageBubble({
   const reasoning = message.role === "assistant" ? message.reasoning ?? "" : "";
   const reasoningStreaming = !!(message.role === "assistant" && message.reasoningStreaming);
   const hasReasoning = reasoning.length > 0 || reasoningStreaming;
-  const automationSourceLabel = message.source?.kind === "cron"
-    ? (message.source.label?.trim() || t("message.automationSourceFallback"))
+  const automationSourceKind = message.source?.kind;
+  const automationSourceName = message.source?.label?.trim();
+  const automationSourceLabel = (
+    automationSourceKind === "cron"
+    || automationSourceKind === "local_trigger"
+    || automationSourceKind === "trigger"
+  )
+    ? (automationSourceName || t("message.automationSourceFallback"))
     : "";
   const automationTriggeredLabel = t("message.automationTriggered");
 
@@ -478,6 +485,7 @@ function UserImageCell({
   onOpen?: () => void;
 }) {
   const hasUrl = typeof image.url === "string" && image.url.length > 0;
+  const resolvedUrl = hasUrl ? resolveGatewayHttpUrl(image.url!) : "";
   const tileClasses = cn(
     "relative overflow-hidden border border-border/60 bg-muted/40",
     size === "large"
@@ -500,7 +508,7 @@ function UserImageCell({
         )}
       >
         <img
-          src={image.url}
+          src={resolvedUrl}
           alt={image.name ?? ""}
           loading="lazy"
           decoding="async"

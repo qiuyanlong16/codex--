@@ -1,84 +1,122 @@
+#!/usr/bin/env node
 /**
- * 生成 Inno Setup / NSIS 向导所需的 BMP 图片资源。
+ * Generate NSIS wizard BMP assets for Windows installer branding.
  *
- * 产出：
- *   resources/installer/wizard-sidebar.bmp  164×314  安装向导左侧大图
- *   resources/installer/wizard-banner.bmp   150×57   安装向导顶部横幅
- *
- * 用法：node scripts/build/gen-installer-images.mjs
- * 无需任何外部依赖，纯 Node.js Buffer 写入原始 BMP 格式。
+ * Output:
+ *   resources/installer/wizard-sidebar.bmp  164×314  installer left panel
+ *   resources/installer/wizard-banner.bmp   150×57   installer header strip
  */
-
-import { writeFileSync, mkdirSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import sharp from "sharp";
+import { createBMP } from "./lib/bmp.mjs";
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const root = join(__dirname, "..", "..");
-const outDir = join(root, "resources", "installer");
+const root = join(dirname(fileURLToPath(import.meta.url)), "../..");
+const outDir = join(root, "resources/installer");
+const sourceJpg = join(root, "resources/icons/source/codex--.jpg");
 
-/**
- * 创建 24-bit 无压缩 BMP Buffer。
- * pixelFn(x, y, w, h) 返回 [r, g, b]（0-255）。
- * BMP 行顺序为 bottom-up。
- */
-function createBMP(width, height, pixelFn) {
-  const bytesPerPixel = 3;
-  const rowBytes = width * bytesPerPixel;
-  const paddedRowBytes = Math.ceil(rowBytes / 4) * 4;
-  const pixelDataSize = paddedRowBytes * height;
-  const fileSize = 14 + 40 + pixelDataSize;
+const SIDEBAR_W = 164;
+const SIDEBAR_H = 314;
+const BANNER_W = 150;
+const BANNER_H = 57;
+const ACCENT = "#00d8ff";
 
-  const buf = Buffer.alloc(fileSize, 0);
+function gradientBackgroundSvg(width, height, horizontal = false) {
+  const gradient = horizontal
+    ? `<linearGradient id="bg" x1="0" y1="0" x2="1" y2="0">
+         <stop offset="0%" stop-color="#1e2230"/>
+         <stop offset="100%" stop-color="#0f1118"/>
+       </linearGradient>`
+    : `<linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+         <stop offset="0%" stop-color="#1e2230"/>
+         <stop offset="55%" stop-color="#161820"/>
+         <stop offset="100%" stop-color="#0f1118"/>
+       </linearGradient>`;
 
-  // File header (14 bytes)
-  buf.write("BM", 0, "ascii");
-  buf.writeUInt32LE(fileSize, 2);
-  buf.writeUInt32LE(0, 6);
-  buf.writeUInt32LE(54, 10); // pixel data offset = 14 + 40
+  const glow = horizontal
+    ? `<radialGradient id="glow" cx="18%" cy="50%" r="65%">
+         <stop offset="0%" stop-color="${ACCENT}" stop-opacity="0.14"/>
+         <stop offset="100%" stop-color="${ACCENT}" stop-opacity="0"/>
+       </radialGradient>`
+    : `<radialGradient id="glow" cx="50%" cy="28%" r="48%">
+         <stop offset="0%" stop-color="${ACCENT}" stop-opacity="0.2"/>
+         <stop offset="100%" stop-color="${ACCENT}" stop-opacity="0"/>
+       </radialGradient>`;
 
-  // DIB header BITMAPINFOHEADER (40 bytes)
-  buf.writeUInt32LE(40, 14);
-  buf.writeInt32LE(width, 18);
-  buf.writeInt32LE(height, 22); // positive = bottom-up storage
-  buf.writeUInt16LE(1, 26); // color planes
-  buf.writeUInt16LE(24, 28); // bits per pixel
-  buf.writeUInt32LE(0, 30); // compression = BI_RGB
-  buf.writeUInt32LE(pixelDataSize, 34);
-  buf.writeInt32LE(2835, 38); // ~72 DPI X
-  buf.writeInt32LE(2835, 42); // ~72 DPI Y
-  buf.writeUInt32LE(0, 46);
-  buf.writeUInt32LE(0, 50);
-
-  // Pixel data
-  let pos = 54;
-  for (let y = height - 1; y >= 0; y--) {
-    for (let x = 0; x < width; x++) {
-      const [r, g, b] = pixelFn(x, y, width, height);
-      buf[pos++] = b & 0xff; // BGR order
-      buf[pos++] = g & 0xff;
-      buf[pos++] = r & 0xff;
-    }
-    for (let p = rowBytes; p < paddedRowBytes; p++) buf[pos++] = 0;
-  }
-
-  return buf;
+  return `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
+    <defs>${gradient}${glow}</defs>
+    <rect width="${width}" height="${height}" fill="url(#bg)"/>
+    <rect width="${width}" height="${height}" fill="url(#glow)"/>
+  </svg>`;
 }
 
-/** 深色渐变背景：顶部深空蓝 → 底部更深，带细微光晕 */
-function sidebarPixel(x, y, w, h) {
-  const ty = y / h; // 0=顶 1=底
+function rawToBmp(data, width, height) {
+  return createBMP(width, height, (x, y) => {
+    const idx = (y * width + x) * 3;
+    return [data[idx], data[idx + 1], data[idx + 2]];
+  });
+}
 
-  // 基础深蓝渐变
+async function composeBmp(width, height, layers) {
+  const bgSvg = Buffer.from(gradientBackgroundSvg(width, height, width > height));
+  const composed = await sharp(bgSvg).composite(layers).png().toBuffer();
+  const { data } = await sharp(composed)
+    .resize(width, height)
+    .removeAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  return rawToBmp(data, width, height);
+}
+
+async function buildSidebarFromSource() {
+  const logoSize = 84;
+  const logo = await sharp(sourceJpg)
+    .resize(logoSize, logoSize, { fit: "cover", position: "centre" })
+    .png()
+    .toBuffer();
+
+  const logoLeft = Math.round((SIDEBAR_W - logoSize) / 2);
+  const logoTop = 68;
+  const labelSvg = Buffer.from(`<svg width="${SIDEBAR_W}" height="72" xmlns="http://www.w3.org/2000/svg">
+    <text x="${SIDEBAR_W / 2}" y="26" text-anchor="middle"
+      font-family="Segoe UI, Arial, sans-serif" font-size="17" font-weight="600" fill="#eef2f7">codex--</text>
+    <text x="${SIDEBAR_W / 2}" y="48" text-anchor="middle"
+      font-family="Segoe UI, Arial, sans-serif" font-size="10" fill="#7a8499">AI coding assistant</text>
+  </svg>`);
+
+  return composeBmp(SIDEBAR_W, SIDEBAR_H, [
+    { input: logo, left: logoLeft, top: logoTop },
+    { input: labelSvg, left: 0, top: logoTop + logoSize + 10 },
+  ]);
+}
+
+async function buildBannerFromSource() {
+  const logoSize = 36;
+  const logo = await sharp(sourceJpg)
+    .resize(logoSize, logoSize, { fit: "cover", position: "centre" })
+    .png()
+    .toBuffer();
+
+  const labelSvg = Buffer.from(`<svg width="96" height="${BANNER_H}" xmlns="http://www.w3.org/2000/svg">
+    <text x="0" y="24" font-family="Segoe UI, Arial, sans-serif" font-size="14" font-weight="600" fill="#eef2f7">codex--</text>
+    <text x="0" y="40" font-family="Segoe UI, Arial, sans-serif" font-size="9" fill="#7a8499">Setup</text>
+  </svg>`);
+
+  return composeBmp(BANNER_W, BANNER_H, [
+    { input: logo, left: 8, top: Math.round((BANNER_H - logoSize) / 2) },
+    { input: labelSvg, left: 52, top: Math.round((BANNER_H - 44) / 2) },
+  ]);
+}
+
+function sidebarPlaceholderPixel(x, y, w, h) {
+  const ty = y / h;
   const r = Math.round(18 + ty * 8);
   const g = Math.round(18 + ty * 6);
   const b = Math.round(40 + ty * 18);
-
-  // 中央竖向高光条（x 方向柔光）
   const cx = w / 2;
   const dx = Math.abs(x - cx) / (w / 2);
   const highlight = Math.round((1 - dx * dx) * 12);
-
   return [
     Math.min(255, r + highlight),
     Math.min(255, g + highlight),
@@ -86,21 +124,31 @@ function sidebarPixel(x, y, w, h) {
   ];
 }
 
-/** 顶部横幅：略浅的深蓝渐变，与侧边栏色系统一 */
-function bannerPixel(x, _y, w, _h) {
+function bannerPlaceholderPixel(x, _y, w, _h) {
   const tx = x / w;
-  const r = Math.round(22 + tx * 10);
-  const g = Math.round(22 + tx * 8);
-  const b = Math.round(48 + tx * 16);
-  return [r, g, b];
+  return [Math.round(22 + tx * 10), Math.round(22 + tx * 8), Math.round(48 + tx * 16)];
 }
 
-mkdirSync(outDir, { recursive: true });
+async function main() {
+  mkdirSync(outDir, { recursive: true });
 
-const sidebar = createBMP(164, 314, sidebarPixel);
-writeFileSync(join(outDir, "wizard-sidebar.bmp"), sidebar);
-console.log("✔  resources/installer/wizard-sidebar.bmp  (164×314)");
+  let sidebar;
+  let banner;
+  if (existsSync(sourceJpg)) {
+    sidebar = await buildSidebarFromSource();
+    banner = await buildBannerFromSource();
+    console.log("[gen-installer-images] wrote branded wizard-sidebar.bmp and wizard-banner.bmp");
+  } else {
+    sidebar = createBMP(SIDEBAR_W, SIDEBAR_H, sidebarPlaceholderPixel);
+    banner = createBMP(BANNER_W, BANNER_H, bannerPlaceholderPixel);
+    console.log("[gen-installer-images] wrote placeholder wizard-sidebar.bmp and wizard-banner.bmp");
+  }
 
-const banner = createBMP(150, 57, bannerPixel);
-writeFileSync(join(outDir, "wizard-banner.bmp"), banner);
-console.log("✔  resources/installer/wizard-banner.bmp   (150×57)");
+  writeFileSync(join(outDir, "wizard-sidebar.bmp"), sidebar);
+  writeFileSync(join(outDir, "wizard-banner.bmp"), banner);
+}
+
+main().catch((err) => {
+  console.error("[gen-installer-images] failed:", err);
+  process.exit(1);
+});

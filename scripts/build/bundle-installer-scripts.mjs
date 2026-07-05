@@ -4,9 +4,18 @@
  * Additionally bundles the `tar` npm module into unpack-python-venv-parallel.cjs
  * via esbuild so the packaged script is fully self-contained (no node_modules needed).
  */
+import { createRequire } from "node:module";
 import { copyFileSync, cpSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+
+const require = createRequire(import.meta.url);
+try {
+  require.resolve("tar");
+} catch {
+  console.error("[bundle-installer-scripts] missing tar dependency — run pnpm install");
+  process.exit(1);
+}
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "../..");
 const scriptsSrc = join(ROOT, "resources/installer/scripts");

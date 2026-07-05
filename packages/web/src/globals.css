@@ -132,6 +132,11 @@
     overflow: hidden;
   }
 
+  html.native-host-mac .host-window-shell {
+    /* macOS uses the system title bar; no extra in-app chrome strip. */
+    padding-top: 0;
+  }
+
   .host-window-shell,
   .host-sidebar-glass {
     --host-glass-spot: hsl(var(--background) / 0.42);

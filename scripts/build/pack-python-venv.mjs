@@ -22,6 +22,20 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  detectPythonLibVersion,
+  findSitePackagesDir,
+  fixPortablePyvenvCfg,
+  isWindowsTarget,
+  resolveTarExe,
+  sitePackagesTarPrefix,
+  venvPythonExecutable,
+} from "./lib/platform.mjs";
+import {
+  makeMacVenvPortable,
+  resolveMacPythonBasePrefix,
+  stageDarwinPythonRuntime,
+} from "./lib/macos-venv-portable.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const VENV_DIR = path.join(ROOT, "packages", "shell", "resources", "python-venv");
@@ -32,16 +46,8 @@ const MANIFEST_PATH = path.join(RESOURCES_DIR, "python-venv_manifest.json");
 // Max ~80 MB per shard to keep extraction fast
 const TARGET_SHARD_SIZE = 80 * 1024 * 1024;
 
-function resolveTarExe() {
-  const candidates = [
-    path.join(process.env.WINDIR || "C:\\Windows", "System32", "tar.exe"),
-    "tar",
-  ];
-  for (const c of candidates) {
-    const probe = spawnSync(c, ["--version"], { encoding: "utf8", windowsHide: true });
-    if (probe.status === 0) return c;
-  }
-  return null;
+function resolveLocalTarExe() {
+  return resolveTarExe(spawnSync);
 }
 
 function getDirSize(dir) {
@@ -368,6 +374,95 @@ function replaceExeLaunchersWithCmd() {
 }
 
 // ---------------------------------------------------------------------------
+// 1b. Make macOS venv self-contained (real binaries + stdlib, not CI symlinks)
+// ---------------------------------------------------------------------------
+
+function mergeStdlibFromBase(baseLibPy, venvLibPy) {
+  fs.mkdirSync(venvLibPy, { recursive: true });
+  for (const entry of fs.readdirSync(baseLibPy, { withFileTypes: true })) {
+    if (entry.name === "site-packages") continue;
+    const src = path.join(baseLibPy, entry.name);
+    const dest = path.join(venvLibPy, entry.name);
+    if (entry.isDirectory()) copyDirSync(src, dest);
+    else fs.copyFileSync(src, dest);
+  }
+}
+
+function makeMacVenvSelfContained() {
+  const pyvenvCfg = path.join(VENV_DIR, "pyvenv.cfg");
+  if (!fs.existsSync(pyvenvCfg)) {
+    console.error("[pack-venv] ERROR: pyvenv.cfg not found");
+    process.exit(1);
+  }
+
+  const pyVersion = detectPythonLibVersion(VENV_DIR);
+  if (!pyVersion) {
+    console.error("[pack-venv] ERROR: could not detect python lib version in venv");
+    process.exit(1);
+  }
+
+  const basePrefix = resolveMacPythonBasePrefix(pyvenvCfg);
+  console.log(`[pack-venv] macOS base prefix: ${basePrefix}`);
+
+  const binDir = path.join(VENV_DIR, "bin");
+  if (!fs.existsSync(binDir)) {
+    console.error("[pack-venv] ERROR: venv bin/ not found");
+    process.exit(1);
+  }
+
+  const versionedName =
+    fs.readdirSync(binDir).find((entry) => entry === pyVersion) ??
+    fs.readdirSync(binDir).find((entry) => /^python3\.\d+$/.test(entry));
+  if (!versionedName) {
+    console.error("[pack-venv] ERROR: no versioned python binary in venv bin/");
+    process.exit(1);
+  }
+
+  let realPython;
+  try {
+    realPython = fs.realpathSync(path.join(binDir, versionedName));
+  } catch (err) {
+    console.error("[pack-venv] ERROR: could not resolve venv python binary", err);
+    process.exit(1);
+  }
+  console.log(`[pack-venv] macOS real python: ${realPython}`);
+
+  for (const name of new Set([versionedName, "python3", "python"])) {
+    const dest = path.join(binDir, name);
+    fs.copyFileSync(realPython, dest);
+    fs.chmodSync(dest, 0o755);
+  }
+  console.log("[pack-venv] materialized python binaries in bin/");
+
+  const baseLibPy = path.join(basePrefix, "lib", pyVersion);
+  const venvLibPy = path.join(VENV_DIR, "lib", pyVersion);
+  if (!fs.existsSync(baseLibPy)) {
+    console.error("[pack-venv] ERROR: base stdlib not found at", baseLibPy);
+    process.exit(1);
+  }
+  mergeStdlibFromBase(baseLibPy, venvLibPy);
+  console.log(`[pack-venv] merged stdlib into lib/${pyVersion}/`);
+
+  const includeDir = path.join(VENV_DIR, "include");
+  const venvIncludePy = path.join(includeDir, pyVersion);
+  const baseIncludePy = path.join(basePrefix, "include", pyVersion);
+  if (fs.existsSync(venvIncludePy) && fs.lstatSync(venvIncludePy).isSymbolicLink()) {
+    const target = fs.realpathSync(venvIncludePy);
+    fs.rmSync(venvIncludePy, { recursive: true, force: true });
+    copyDirSync(target, venvIncludePy);
+  } else if (!fs.existsSync(venvIncludePy) && fs.existsSync(baseIncludePy)) {
+    fs.mkdirSync(includeDir, { recursive: true });
+    copyDirSync(baseIncludePy, venvIncludePy);
+  }
+
+  makeMacVenvPortable(VENV_DIR, pyVersion, basePrefix);
+  fixPortablePyvenvCfg(VENV_DIR);
+  console.log("[pack-venv] venv is now self-contained on macOS");
+
+  stageDarwinPythonRuntime(VENV_DIR, RESOURCES_DIR);
+}
+
+// ---------------------------------------------------------------------------
 // 2. Copy webui dist into venv
 // ---------------------------------------------------------------------------
 
@@ -378,28 +473,24 @@ function copyWebuiDistToVenv() {
     process.exit(1);
   }
 
-  // Find nanobot/web/dist inside the venv
-  const sitePackages = path.join(VENV_DIR, "Lib", "site-packages");
-  const nanobotWebDist = path.join(sitePackages, "nanobot", "web", "dist");
-
-  if (!fs.existsSync(path.join(sitePackages, "nanobot"))) {
-    // Might be an editable install — check the vendor path
-    console.log("[pack-venv] editable install detected, checking vendor...");
-    // For editable installs, nanobot points to vendor/nanobot
-    // We need to create the dist dir in vendor
-    const vendorDist = path.join(ROOT, "vendor", "nanobot", "nanobot", "web", "dist");
-    fs.mkdirSync(path.dirname(vendorDist), { recursive: true });
-    fs.rmSync(vendorDist, { recursive: true, force: true });
-    copyDirSync(WEBUI_DIST, vendorDist);
-    console.log(`[pack-venv] webui dist → ${vendorDist}`);
-    return vendorDist;
+  const sitePackages = findSitePackagesDir(VENV_DIR);
+  if (sitePackages && fs.existsSync(path.join(sitePackages, "nanobot"))) {
+    const nanobotWebDist = path.join(sitePackages, "nanobot", "web", "dist");
+    fs.mkdirSync(path.dirname(nanobotWebDist), { recursive: true });
+    fs.rmSync(nanobotWebDist, { recursive: true, force: true });
+    copyDirSync(WEBUI_DIST, nanobotWebDist);
+    console.log(`[pack-venv] webui dist → ${nanobotWebDist}`);
+    return nanobotWebDist;
   }
 
-  fs.mkdirSync(path.dirname(nanobotWebDist), { recursive: true });
-  fs.rmSync(nanobotWebDist, { recursive: true, force: true });
-  copyDirSync(WEBUI_DIST, nanobotWebDist);
-  console.log(`[pack-venv] webui dist → ${nanobotWebDist}`);
-  return nanobotWebDist;
+  // Editable install — copy into vendor tree
+  console.log("[pack-venv] editable install detected, checking vendor...");
+  const vendorDist = path.join(ROOT, "vendor", "nanobot", "nanobot", "web", "dist");
+  fs.mkdirSync(path.dirname(vendorDist), { recursive: true });
+  fs.rmSync(vendorDist, { recursive: true, force: true });
+  copyDirSync(WEBUI_DIST, vendorDist);
+  console.log(`[pack-venv] webui dist → ${vendorDist}`);
+  return vendorDist;
 }
 
 function copyDirSync(src, dest) {
@@ -417,7 +508,10 @@ function copyDirSync(src, dest) {
 // ---------------------------------------------------------------------------
 
 function planShards() {
-  const sitePackages = path.join(VENV_DIR, "Lib", "site-packages");
+  const sitePackages = findSitePackagesDir(VENV_DIR);
+  if (!sitePackages) {
+    throw new Error("[pack-venv] site-packages not found in venv");
+  }
   const sitePackagesDirs = fs.readdirSync(sitePackages, { withFileTypes: true })
     .filter(e => e.isDirectory())
     .map(e => ({
@@ -461,6 +555,7 @@ function planShards() {
 
 function createTarShards(shards, tarExe) {
   const shardFiles = [];
+  const sitePackagesPrefix = sitePackagesTarPrefix(VENV_DIR);
 
   for (let i = 0; i < shards.length; i++) {
     const shardFile = path.join(RESOURCES_DIR, `python-venv_${i}.tar`);
@@ -468,16 +563,10 @@ function createTarShards(shards, tarExe) {
 
     console.log(`[pack-venv] shard ${i}: ${shard.dirs.length} dirs, ${(shard.size / 1024 / 1024).toFixed(1)} MB`);
 
-    // We need to tar the entire venv structure but only include specific site-packages dirs
-    // Strategy: create a temp staging dir with symlinks/copies, then tar it
-    // Simpler: tar the whole venv for shard 0 (includes Scripts/, python.exe etc.),
-    //          then tar only specific site-packages dirs for remaining shards
-
     if (i === 0) {
-      // Shard 0: everything EXCEPT site-packages subdirs assigned to other shards
       const excludeDirs = shards.slice(1).flatMap(s => s.dirs);
       const excludeArgs = excludeDirs.flatMap(d => [
-        "--exclude", `python-venv/Lib/site-packages/${d}`,
+        "--exclude", `${sitePackagesPrefix}/${d}`,
       ]);
 
       const args = [
@@ -489,26 +578,28 @@ function createTarShards(shards, tarExe) {
 
       const result = spawnSync(tarExe, args, {
         encoding: "utf8",
-        windowsHide: true,
+        windowsHide: process.platform === "win32",
         timeout: 300_000,
       });
       if (result.status !== 0) {
         throw new Error(`tar shard 0 failed: ${result.stderr}`);
       }
     } else {
-      // Shard N: only the assigned site-packages dirs
-      // Create a tar with just these dirs under the venv path
       const tempDir = path.join(RESOURCES_DIR, `.tar-staging-${i}`);
-      const stagingSitePkg = path.join(tempDir, "python-venv", "Lib", "site-packages");
+      const stagingSitePkg = path.join(tempDir, ...sitePackagesPrefix.split("/"));
       fs.mkdirSync(stagingSitePkg, { recursive: true });
 
+      const sitePackages = findSitePackagesDir(VENV_DIR);
       for (const dirName of shard.dirs) {
-        const src = path.join(VENV_DIR, "Lib", "site-packages", dirName);
+        const src = path.join(sitePackages, dirName);
         const dest = path.join(stagingSitePkg, dirName);
-        // Use junction on Windows for speed
-        try {
-          fs.symlinkSync(src, dest, "junction");
-        } catch {
+        if (isWindowsTarget()) {
+          try {
+            fs.symlinkSync(src, dest, "junction");
+          } catch {
+            copyDirSync(src, dest);
+          }
+        } else {
           copyDirSync(src, dest);
         }
       }
@@ -521,11 +612,10 @@ function createTarShards(shards, tarExe) {
 
       const result = spawnSync(tarExe, args, {
         encoding: "utf8",
-        windowsHide: true,
+        windowsHide: process.platform === "win32",
         timeout: 300_000,
       });
 
-      // Clean up staging
       fs.rmSync(tempDir, { recursive: true, force: true });
 
       if (result.status !== 0) {
@@ -551,24 +641,25 @@ if (!fs.existsSync(VENV_DIR)) {
   process.exit(1);
 }
 
-const tarExe = resolveTarExe();
+const tarExe = resolveLocalTarExe();
 if (!tarExe) {
-  console.error("[pack-venv] ERROR: tar.exe not found. Windows 10+ includes tar.exe.");
+  console.error("[pack-venv] ERROR: system tar not found.");
   process.exit(1);
 }
 
 console.log(`[pack-venv] venv: ${VENV_DIR} (${(getDirSize(VENV_DIR) / 1024 / 1024).toFixed(1)} MB)`);
 console.log(`[pack-venv] tar:  ${tarExe}`);
+console.log(`[pack-venv] target platform: ${process.env.BYCLAW_TARGET_PLATFORM ?? process.platform}`);
 
-// Step 0: Make venv self-contained by copying base Python runtime into it
-// Without this, pyvenv.cfg points to the dev machine's Python (e.g. Lenovo ByRuntime)
-// which doesn't exist on the target machine, causing exit code 103.
-makeVenvSelfContained();
-
-// Step 0a: Replace pip-generated .exe console_script launchers with portable .cmd
-// The .exe launchers have the build machine's Python path hardcoded inside them.
-// .cmd wrappers use %~dp0python.exe (relative path) so they work on any machine.
-replaceExeLaunchersWithCmd();
+const darwinRuntimeDir = path.join(RESOURCES_DIR, "python-darwin-runtime");
+if (isWindowsTarget()) {
+  // Never ship macOS repair/runtime artifacts in a Windows build.
+  fs.rmSync(darwinRuntimeDir, { recursive: true, force: true });
+  makeVenvSelfContained();
+  replaceExeLaunchersWithCmd();
+} else {
+  makeMacVenvSelfContained();
+}
 
 // Step 1: Copy webui dist
 copyWebuiDistToVenv();

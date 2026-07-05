@@ -169,8 +169,13 @@ vi.mock("@/hooks/useTheme", async () => {
     useTheme: () => ({
       theme: "light" as const,
       toggle: toggleThemeSpy,
+      setTheme: vi.fn(),
     }),
     useThemeValue: () => "light" as const,
+    readInitialTheme: () => "light" as const,
+    applyDocumentTheme: vi.fn(),
+    syncNativeTitleBarWithRetry: () => () => {},
+    titleBarPayloadForTheme: () => ({ mode: "light" as const }),
   };
 });
 
@@ -280,7 +285,7 @@ describe("App layout", () => {
     fireEvent.click(screen.getByRole("button", { name: "Connect" }));
 
     expect(await screen.findByText("Invalid password. Try again.")).toBeInTheDocument();
-    expect(fetchBootstrap).toHaveBeenLastCalledWith("", "wrong-password");
+    expect(fetchBootstrap).toHaveBeenLastCalledWith("", "wrong-password", undefined);
     expect(connectSpy).not.toHaveBeenCalled();
   });
 
@@ -1527,6 +1532,10 @@ describe("App layout", () => {
       }),
     );
 
+    localStorage.setItem(
+      "nanobot-webui.settings-preferences",
+      JSON.stringify({ brandLogos: true }),
+    );
     render(<App />);
 
     await waitFor(() => expect(connectSpy).toHaveBeenCalled());
