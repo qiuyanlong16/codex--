@@ -48,6 +48,8 @@
     "failed": {
       "title": "Could not start codex--",
       "hint": "Check your model provider configuration and logs, then retry.",
+      "gatewayHint": "The gateway is running but the UI could not connect. Check logs and retry.",
+      "gatewayError": "Connection error",
       "error": "Startup error",
       "logDir": "Logs",
       "retry": "Retry",
