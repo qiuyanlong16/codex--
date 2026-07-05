@@ -81,6 +81,35 @@ pnpm bundle
 
 **macOS unsigned install:** drag to Applications, then Right-click → Open (or `xattr -cr /Applications/codex--.app`).
 
+## ⚠️ Cross-Platform Packaging (Important)
+
+**Windows installers must be built on Windows; macOS installers must be built on macOS.** Each platform ships its own self-contained Python runtime — **they are not interchangeable**.
+
+| Platform | Build environment | Artifact | Python runtime strategy |
+| -------- | ----------------- | -------- | ----------------------- |
+| Windows | `windows-latest` or local Windows | `.exe` (NSIS) | Embeds `python.exe` + DLLs + `.pyd`, uses `python313._pth` (no registry) |
+| macOS | `macos-latest` or local Mac | `.dmg` | Embeds `Python.app` + `libpython` dylib, rewrites deps with `install_name_tool` (no system `Python.framework`) |
+
+**Do not:**
+
+- ❌ Build `.dmg` on Windows, or `.exe` on macOS
+- ❌ Copy Windows `python-venv_*.tar` shards into a Mac build (or vice versa)
+- ❌ Expect an old Mac venv to work without the bundled `Python.app` runtime
+
+**CI:** Pushes to `feat/cross-platform` / `main` / `master` trigger GitHub Actions with parallel Windows and macOS jobs (see `.github/workflows/build.yml`).
+
+**Local equivalent:**
+
+```bash
+# Windows
+set BYCLAW_TARGET_PLATFORM=win32
+pnpm bundle
+
+# macOS
+export BYCLAW_TARGET_PLATFORM=darwin
+pnpm bundle
+```
+
 **Platform env vars** (for `bundle-cached.mjs`):
 
 | Variable                 | Values                                                     |

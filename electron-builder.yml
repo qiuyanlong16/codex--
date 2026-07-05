@@ -79,6 +79,11 @@ mac:
   category: public.app-category.developer-tools
   identity: null
   gatekeeperAssess: false
+  extraResources:
+    - from: packages/shell/resources/python-darwin-runtime
+      to: python-darwin-runtime
+      filter:
+        - "**/*"
 
 linux:
   target:

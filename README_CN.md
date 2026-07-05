@@ -81,6 +81,35 @@ pnpm bundle
 
 **macOS 未签名安装**：拖入「应用程序」，首次打开请右键 → 打开（或 `xattr -cr /Applications/codex--.app`）。
 
+## ⚠️ 跨平台打包（重要）
+
+**Windows 安装包只能在 Windows 上构建；macOS 安装包只能在 macOS 上构建。** 两个平台的 Python 运行时完全独立，**不可混用**。
+
+| 平台 | 构建环境 | 产物 | Python 运行时策略 |
+| ---- | -------- | ---- | ----------------- |
+| Windows | `windows-latest` 或本机 Windows | `.exe` (NSIS) | 嵌入 `python.exe` + DLL + `.pyd`，使用 `python313._pth` 免注册表 |
+| macOS | `macos-latest` 或本机 Mac | `.dmg` | 嵌入 `Python.app` + `libpython` dylib，用 `install_name_tool` 去除对系统 `Python.framework` 的依赖 |
+
+**禁止的操作：**
+
+- ❌ 在 Windows 上构建 `.dmg`，或在 Mac 上构建 `.exe`
+- ❌ 把 Windows 构建的 `python-venv_*.tar` 复制到 Mac 包（或反向操作）
+- ❌ 在没有 Python 3.12 框架的 Mac 上直接运行未修复的旧版 venv
+
+**CI：** 推送到 `feat/cross-platform` / `main` / `master` 会触发 GitHub Actions，分别并行构建 Windows 与 macOS 产物（见 `.github/workflows/build.yml`）。
+
+**本地等效命令：**
+
+```bash
+# Windows
+set BYCLAW_TARGET_PLATFORM=win32
+pnpm bundle
+
+# macOS
+export BYCLAW_TARGET_PLATFORM=darwin
+pnpm bundle
+```
+
 **平台环境变量**：
 
 | 变量                     | 值                 |

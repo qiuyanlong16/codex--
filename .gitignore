@@ -41,6 +41,7 @@ packages/shell/resources/installer-python/
 packages/shell/resources/installer-scripts/
 packages/shell/resources/python/
 packages/shell/resources/python-venv/
+packages/shell/resources/python-darwin-runtime/
 packages/shell/agents/
 
 # ── vendor 源码（通过脚本生成） ────────────────────────
