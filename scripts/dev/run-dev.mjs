@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { createRequire } from "node:module";
 import { spawn, spawnSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -18,11 +19,28 @@ function runShell(command) {
   }
 }
 
+function resolveConcurrentlyBin() {
+  const binName = process.platform === "win32" ? "concurrently.cmd" : "concurrently";
+  const pnpmBin = path.join(repoRoot, "node_modules", ".bin", binName);
+  try {
+    const req = createRequire(path.join(repoRoot, "package.json"));
+    const pkgJson = req.resolve("concurrently/package.json");
+    return path.join(path.dirname(pkgJson), "dist", "bin", "concurrently.js");
+  } catch {
+    return pnpmBin;
+  }
+}
+
 runShell("node scripts/dev/free-vite-port.mjs");
 runShell("pnpm build:shared");
 
+const concurrentlyBin = resolveConcurrentlyBin();
+const concurrentlyCmd =
+  process.platform === "win32" && concurrentlyBin.endsWith(".cmd")
+    ? `"${concurrentlyBin}"`
+    : `node "${concurrentlyBin}"`;
 const child = spawn(
-  'npx concurrently -n web,shell,electron "pnpm dev:web" "pnpm dev:shell" "pnpm dev:electron"',
+  `${concurrentlyCmd} -n web,shell,electron "pnpm dev:web" "pnpm dev:shell" "pnpm dev:electron"`,
   {
     cwd: repoRoot,
     env: process.env,

@@ -13,6 +13,9 @@ importers:
       "@commitlint/config-conventional":
         specifier: ^21.2.0
         version: 21.2.0
+      concurrently:
+        specifier: 9.0.0
+        version: 9.0.0
       electron-builder:
         specifier: ^26.15.3
         version: 26.15.3(electron-builder-squirrel-windows@26.15.3)
