@@ -165,16 +165,19 @@ if (process.env.CI === "true") {
 }
 console.log(`[bundle:cached] electron-builder ${builderArgs.join(" ")} (platform=${targetPlatform})`);
 
+const electronBuilderBin = path.join(
+  repoRoot,
+  "node_modules",
+  ".bin",
+  process.platform === "win32" ? "electron-builder.cmd" : "electron-builder",
+);
+
 const pnpmCmd = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
 run(
-  pnpmCmd,
-  [
-    "exec",
-    "electron-builder",
-    ...builderArgs,
-    "--config",
-    "electron-builder.yml",
-  ],
+  fs.existsSync(electronBuilderBin) ? electronBuilderBin : pnpmCmd,
+  fs.existsSync(electronBuilderBin)
+    ? [...builderArgs, "--config", "electron-builder.yml"]
+    : ["exec", "electron-builder", ...builderArgs, "--config", "electron-builder.yml"],
   {
     ELECTRON_CACHE: electronCache,
     ELECTRON_BUILDER_CACHE: builderCache,

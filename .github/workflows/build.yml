@@ -36,8 +36,10 @@ jobs:
           node-version: "22"
           cache: pnpm
       - uses: actions/setup-python@v5
+        id: setup-python
         with:
           python-version: "3.12"
+      - run: python --version && python3 --version
       - run: pnpm install --frozen-lockfile
       - run: node scripts/build/clone-nanobot.mjs
       - run: node scripts/build/sync-webui.mjs
@@ -46,6 +48,8 @@ jobs:
       - run: pnpm build:web
       - run: pnpm build:shell
       - run: node scripts/build/create-python-venv.mjs
+        env:
+          BYCLAW_PYTHON_EXE: ${{ steps.setup-python.outputs.python-path }}
       - run: node scripts/build/pack-python-venv.mjs
       - run: node scripts/build/bundle-cached.mjs
         env:
@@ -72,8 +76,10 @@ jobs:
           node-version: "22"
           cache: pnpm
       - uses: actions/setup-python@v5
+        id: setup-python
         with:
           python-version: "3.12"
+      - run: python --version && python3 --version
       - run: pnpm install --frozen-lockfile
       - run: node scripts/build/clone-nanobot.mjs
       - run: node scripts/build/sync-webui.mjs
@@ -82,6 +88,8 @@ jobs:
       - run: pnpm build:web
       - run: pnpm build:shell
       - run: node scripts/build/create-python-venv.mjs
+        env:
+          BYCLAW_PYTHON_EXE: ${{ steps.setup-python.outputs.python-path }}
       - run: node scripts/build/pack-python-venv.mjs
       - run: node scripts/build/bundle-cached.mjs
         env:
