@@ -30,9 +30,20 @@ const DEFAULT_VENV_DIR = path.join(ROOT, "packages", "shell", "resources", "pyth
 const VENV_DIR = process.env.BYCLAW_PYTHON_VENV_DIR?.trim() || DEFAULT_VENV_DIR;
 
 const PYTHON_EXE_NAME = process.platform === "win32" ? "python.exe" : "python3";
-const SYSTEM_PYTHON =
-  process.env.BYCLAW_PYTHON_EXE?.trim() ||
-  (process.platform === "win32" ? "python" : "python3");
+
+function resolveSystemPython() {
+  if (process.env.BYCLAW_PYTHON_EXE?.trim()) {
+    return process.env.BYCLAW_PYTHON_EXE.trim();
+  }
+  const candidates = process.platform === "win32" ? ["python"] : ["python3", "python"];
+  for (const cmd of candidates) {
+    const probe = spawnSync(cmd, ["--version"], { encoding: "utf8", stdio: "pipe" });
+    if (probe.status === 0) return cmd;
+  }
+  return process.platform === "win32" ? "python" : "python3";
+}
+
+const SYSTEM_PYTHON = resolveSystemPython();
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -59,7 +70,12 @@ function venvPython() {
   if (process.platform === "win32") {
     return path.join(VENV_DIR, "Scripts", "python.exe");
   }
-  return path.join(VENV_DIR, "bin", "python");
+  const binDir = path.join(VENV_DIR, "bin");
+  for (const name of ["python3", "python"]) {
+    const candidate = path.join(binDir, name);
+    if (fs.existsSync(candidate)) return candidate;
+  }
+  return path.join(binDir, "python3");
 }
 
 function venvPip() {
@@ -171,7 +187,8 @@ const gwResult = spawnSync(pyInVenv, ["-c", "from nanobot.cli.commands import _r
   encoding: "utf8",
 });
 if (gwResult.status !== 0) {
-  throw new Error(`gateway module check failed: ${gwResult.stderr}`);
+  const detail = (gwResult.stderr || gwResult.stdout || "").toString().trim();
+  throw new Error(`gateway module check failed: ${detail || "unknown error"}`);
 }
 
 // ---------------------------------------------------------------------------

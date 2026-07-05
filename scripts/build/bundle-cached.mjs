@@ -14,7 +14,6 @@ const builderMirror =
   process.env.ELECTRON_BUILDER_BINARIES_MIRROR ??
   "https://npmmirror.com/mirrors/electron-builder-binaries/";
 const electronMirror = process.env.ELECTRON_MIRROR ?? "https://npmmirror.com/mirrors/electron/";
-const npx = process.platform === "win32" ? "npx.cmd" : "npx";
 
 function electronBuilderArgs() {
   if (targetPlatform === "darwin") {
@@ -134,10 +133,8 @@ if (process.env.CI === "true") {
 console.log(`[bundle:cached] electron-builder ${builderArgs.join(" ")} (platform=${targetPlatform})`);
 
 run(
-  npx,
+  "pnpm",
   [
-    "--yes",
-    "pnpm@9.15.4",
     "exec",
     "electron-builder",
     ...builderArgs,
