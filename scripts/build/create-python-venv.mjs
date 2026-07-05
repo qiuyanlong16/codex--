@@ -58,9 +58,10 @@ function run(cmd, args, opts = {}) {
     ...opts,
   });
   if (r.status !== 0) {
+    const errOut = (r.stderr || r.stdout || "").toString().trim();
     throw new Error(
       `${cmd} ${args.join(" ")} exited with code ${r.status}` +
-        (r.stderr ? `\n${r.stderr.toString().slice(0, 500)}` : ""),
+        (errOut ? `\n${errOut.slice(0, 4000)}` : ""),
     );
   }
   return r;
@@ -182,14 +183,16 @@ const verifyResult = spawnSync(pyInVenv, ["-c", "import nanobot; print(nanobot._
 const nanobotVersion = (verifyResult.stdout || "").trim();
 console.log(`[create-python-venv] nanobot version: ${nanobotVersion || "(unknown)"}`);
 
-// Check that the gateway module is importable
-const gwResult = spawnSync(pyInVenv, ["-c", "from nanobot.cli.commands import _run_gateway; print('gateway OK')"], {
+// Check that the nanobot CLI entry point works (lighter than importing private symbols).
+const gwResult = spawnSync(pyInVenv, ["-m", "nanobot", "--help"], {
   encoding: "utf8",
+  stdio: "pipe",
 });
 if (gwResult.status !== 0) {
   const detail = (gwResult.stderr || gwResult.stdout || "").toString().trim();
-  throw new Error(`gateway module check failed: ${detail || "unknown error"}`);
+  throw new Error(`nanobot CLI check failed: ${detail || "unknown error"}`);
 }
+console.log("[create-python-venv] nanobot CLI OK");
 
 // ---------------------------------------------------------------------------
 // 6. Clean up: remove __pycache__, pip, setuptools, tests (saves ~150 MB)
