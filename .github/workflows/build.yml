@@ -1,0 +1,71 @@
+name: Build
+
+on:
+  push:
+    branches: [feat/cross-platform, main, master]
+  pull_request:
+    branches: [feat/cross-platform, main, master]
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build:shared
+      - run: pnpm --filter @byclaw-nanobot/web test
+
+  build-windows:
+    runs-on: windows-latest
+    needs: test
+    env:
+      BYCLAW_TARGET_PLATFORM: win32
+      BYCLAW_TARGET_ARCH: x64
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm bundle
+      - uses: actions/upload-artifact@v4
+        with:
+          name: codex---windows-x64
+          path: dist-release/*.exe
+          if-no-files-found: error
+
+  build-macos:
+    runs-on: macos-latest
+    needs: test
+    env:
+      BYCLAW_TARGET_PLATFORM: darwin
+      BYCLAW_TARGET_ARCH: arm64
+      CSC_IDENTITY_AUTO_DISCOVERY: "false"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm bundle
+      - uses: actions/upload-artifact@v4
+        with:
+          name: codex---macos-arm64
+          path: dist-release/*.dmg
+          if-no-files-found: error

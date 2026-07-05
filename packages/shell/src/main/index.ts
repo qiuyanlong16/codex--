@@ -5,7 +5,8 @@ import { app, BrowserWindow } from "electron";
 import { IPC, IPC_EVENTS } from "@byclaw-nanobot/shared";
 import type { NanobotReadyEvent, StartupFailedEvent, StartupReadyEvent } from "@byclaw-nanobot/shared";
 import { initMainLogger, mainLog } from "./core/logging/main-logger.js";
-import { configureProductUserDataPath, getByclawHomeDir } from "./core/platform-paths.js";
+import { configureProductUserDataPath, getByclawHomeDir, resolveProductUserDataPath } from "./core/platform-paths.js";
+import { runFirstRunSetup } from "./nanobot/first-run-setup.js";
 import {
   registerAppHandlers,
   registerWindowHandlers,
@@ -25,11 +26,7 @@ import {
 // Very early init log - writes before anything else
 try {
   const fs = require("node:fs");
-  const earlyLogPath = path.join(
-    process.env.LOCALAPPDATA ?? path.join(process.env.USERPROFILE ?? "", "AppData", "Local"),
-    "ByNanobot",
-    "early.log",
-  );
+  const earlyLogPath = path.join(resolveProductUserDataPath(), "early.log");
   fs.mkdirSync(path.dirname(earlyLogPath), { recursive: true });
   fs.appendFileSync(earlyLogPath, `[${new Date().toISOString()}] Module loaded, pid=${process.pid}\n`);
 } catch (err) {
@@ -37,11 +34,7 @@ try {
 }
 
 // Early crash handler - writes to a file that doesn't depend on electron-log
-const _crashLogPath = path.join(
-  process.env.LOCALAPPDATA ?? path.join(process.env.USERPROFILE ?? "", "AppData", "Local"),
-  "ByNanobot",
-  "crash.log",
-);
+const _crashLogPath = path.join(resolveProductUserDataPath(), "crash.log");
 process.on("uncaughtException", (err) => {
   try {
     const fs = require("node:fs");
@@ -220,7 +213,7 @@ async function bootstrap(): Promise<void> {
     getLocale: () => app.getLocale(),
   });
 
-  mainLog.info("lifecycle", `by-claw-nanobot shell window ready (${isDev ? "dev" : "prod"})`);
+  mainLog.info("lifecycle", `codex-- shell window ready (${isDev ? "dev" : "prod"})`);
   sendToRenderer(IPC_EVENTS.logPolicyChanged, { ready: true });
 
   const encryptKey = randomBytes(16).toString("hex");
@@ -230,6 +223,7 @@ async function bootstrap(): Promise<void> {
 }
 
 async function runBackgroundStartup(): Promise<void> {
+  await runFirstRunSetup();
   const stateDir = getByclawHomeDir();
   const nanobotRuntime = new NanobotRuntimeService(stateDir);
 
