@@ -357,6 +357,7 @@ export default function App() {
   const electronShell = isLikelyElectronShell();
   const [state, setState] = useState<BootState>({ status: "loading" });
   const bootstrapSecretRef = useRef("");
+  const electronBootstrapStartedRef = useRef(false);
 
   const showStartupShell =
     electronShell
@@ -497,23 +498,27 @@ export default function App() {
   }, [refreshReadyClient, state]);
 
   useEffect(() => {
-    if (showStartupShell) return;
     if (electronShell) {
+      if (nativeBoot.blocking) return;
       if (!gatewayUrl) return;
+      if (electronBootstrapStartedRef.current) return;
+      electronBootstrapStartedRef.current = true;
       const saved = loadSavedSecret();
       return bootstrapWithSecret(saved, gatewayUrl);
     }
     const saved = loadSavedSecret();
     return bootstrapWithSecret(saved);
-  }, [bootstrapWithSecret, showStartupShell, electronShell, gatewayUrl]);
+  }, [bootstrapWithSecret, nativeBoot.blocking, electronShell, gatewayUrl]);
 
   const handleStartupRetry = useCallback(() => {
     const api = getElectronApi();
     if (nativeBoot.failed) {
+      electronBootstrapStartedRef.current = false;
       if (api) void api.app.retryStartup();
       return;
     }
     if (state.status === "error") {
+      electronBootstrapStartedRef.current = false;
       setState({ status: "loading" });
       const saved = loadSavedSecret();
       if (gatewayUrl) bootstrapWithSecret(saved, gatewayUrl);
