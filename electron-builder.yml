@@ -1,5 +1,5 @@
-appId: com.codex--.app
-productName: codex--
+appId: com.byclaw.nanobot
+productName: by-claw-nanobot
 electronVersion: 42.0.0
 
 directories:
@@ -71,13 +71,8 @@ nsis:
   createStartMenuShortcut: true
 
 mac:
-  icon: resources/icons/icon.png
   target:
     - target: dmg
-  artifactName: "${productName}-${version}-${arch}.dmg"
-  category: public.app-category.developer-tools
-  identity: null
-  gatekeeperAssess: false
 
 linux:
   target:
