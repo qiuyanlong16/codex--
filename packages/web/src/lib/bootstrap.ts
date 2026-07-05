@@ -35,7 +35,37 @@ export function clearSavedSecret(): void {
 /**
  * Fetch a short-lived token + the WebSocket path from the gateway's
  * ``/webui/bootstrap`` endpoint.
+ *
+ * Never uses a bare ``/webui/bootstrap`` path on ``file://`` — that resolves to
+ * ``file:///C:/webui/bootstrap`` on Windows packaged Electron.
  */
+export function resolveBootstrapFetchUrl(baseUrl = ""): string {
+  const trimmed = baseUrl.trim().replace(/\/$/, "");
+  if (/^https?:\/\//i.test(trimmed)) {
+    return `${trimmed}/webui/bootstrap`;
+  }
+
+  const gateway = getGatewayBaseUrl().trim().replace(/\/$/, "");
+  if (gateway) {
+    return `${gateway}/webui/bootstrap`;
+  }
+
+  if (typeof window !== "undefined") {
+    if (window.location.protocol === "file:") {
+      throw new Error("gateway URL not ready");
+    }
+    if (window.location.port === "5173") {
+      return "/webui/bootstrap";
+    }
+    const origin = window.location.origin;
+    if (origin && origin !== "null") {
+      return `${origin}/webui/bootstrap`;
+    }
+  }
+
+  throw new Error("cannot resolve bootstrap URL");
+}
+
 export async function fetchBootstrap(
   baseUrl: string = "",
   secret: string = "",
@@ -45,7 +75,7 @@ export async function fetchBootstrap(
   if (secret) {
     headers["X-Nanobot-Auth"] = secret;
   }
-  const res = await fetchWithTimeout(`${baseUrl}/webui/bootstrap`, {
+  const res = await fetchWithTimeout(resolveBootstrapFetchUrl(baseUrl), {
     method: "GET",
     credentials: "same-origin",
     headers,
@@ -95,6 +125,10 @@ export function deriveWsUrl(
   if (wsUrl && /^(wss?|nanobot-host):\/\//i.test(wsUrl)) {
     const join = wsUrl.includes("?") ? "&" : "?";
     return `${wsUrl}${join}token=${encodeURIComponent(token)}`;
+  }
+  if (typeof window !== "undefined" && window.location.protocol === "file:") {
+    const host = gatewayBase ? new URL(gatewayBase).host : "127.0.0.1:8766";
+    return `ws://${host}${path}${query}`;
   }
   if (typeof window === "undefined") {
     const host = gatewayBase ? new URL(gatewayBase).host : "127.0.0.1:8766";

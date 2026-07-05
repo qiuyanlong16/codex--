@@ -1,11 +1,37 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { deriveWsUrl, fetchBootstrap, isTransientBootstrapError } from "@/lib/bootstrap";
+import { deriveWsUrl, fetchBootstrap, isTransientBootstrapError, resolveBootstrapFetchUrl } from "@/lib/bootstrap";
+import { clearGatewayBaseUrl, setGatewayBaseUrl } from "@/lib/gateway-url";
 
 describe("bootstrap helpers", () => {
   afterEach(() => {
     vi.useRealTimers();
     vi.unstubAllGlobals();
+    clearGatewayBaseUrl();
+  });
+
+  it("never uses file:///C:/webui/bootstrap on packaged file:// pages", () => {
+    vi.stubGlobal("window", {
+      location: { protocol: "file:", port: "", origin: "null", host: "" },
+    });
+    expect(() => resolveBootstrapFetchUrl("")).toThrow("gateway URL not ready");
+    setGatewayBaseUrl(8766);
+    expect(resolveBootstrapFetchUrl("")).toBe("http://127.0.0.1:8766/webui/bootstrap");
+  });
+
+  it("uses the Vite dev proxy path on port 5173", () => {
+    vi.stubGlobal("window", {
+      location: { protocol: "http:", port: "5173", origin: "http://127.0.0.1:5173", host: "127.0.0.1:5173" },
+    });
+    expect(resolveBootstrapFetchUrl("")).toBe("/webui/bootstrap");
+  });
+
+  it("routes websocket through gateway host on file:// packaged shell", () => {
+    setGatewayBaseUrl(8766);
+    vi.stubGlobal("window", {
+      location: { protocol: "file:", port: "", host: "", origin: "null" },
+    });
+    expect(deriveWsUrl("/ws", "tok")).toBe("ws://127.0.0.1:8766/ws?token=tok");
   });
 
   it("prefers the server-provided websocket URL over the current dev host", () => {

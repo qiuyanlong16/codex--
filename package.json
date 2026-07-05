@@ -1,6 +1,6 @@
 {
   "name": "by-claw-nanobot",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "description": "codex-- desktop product - nanobot AI agent integration",
   "packageManager": "pnpm@9.15.4",

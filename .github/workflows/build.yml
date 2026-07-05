@@ -42,8 +42,6 @@ jobs:
       - run: python --version && python3 --version
       - run: pnpm install --frozen-lockfile
       - run: node scripts/build/clone-nanobot.mjs
-      - run: node scripts/build/sync-webui.mjs
-      - run: pnpm install --no-frozen-lockfile
       - run: node scripts/build/ensure-brand-icons.mjs
       - run: pnpm build:shared
       - run: pnpm build:web
@@ -83,8 +81,6 @@ jobs:
       - run: python --version && python3 --version
       - run: pnpm install --frozen-lockfile
       - run: node scripts/build/clone-nanobot.mjs
-      - run: node scripts/build/sync-webui.mjs
-      - run: pnpm install --no-frozen-lockfile
       - run: node scripts/build/ensure-brand-icons.mjs
       - run: pnpm build:shared
       - run: pnpm build:web

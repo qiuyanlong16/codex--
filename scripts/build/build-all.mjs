@@ -5,7 +5,7 @@
  *
  * Correct order (each step depends on the previous):
  *   1. clone-nanobot       → vendor/nanobot/
- *   2. sync-webui           → packages/web/ (from vendor/nanobot/webui/)
+ *   2. (optional) sync-webui → only when BYCLAW_PACK_SYNC_WEBUI=1
  *   3. build:web            → packages/web/dist/
  *   4. build:shell          → packages/shell/dist/
  *   5. create-python-venv   → packages/shell/resources/python-venv/
@@ -17,6 +17,7 @@
  *
  * Env vars:
  *   BYCLAW_PACK_SKIP_CLONE=1    Skip nanobot clone (use existing vendor/)
+ *   BYCLAW_PACK_SYNC_WEBUI=1    Overwrite packages/web from vendor (dev import only)
  *   BYCLAW_PACK_SKIP_VENV=1     Skip venv create+pack (use existing tar shards)
  *   BYCLAW_PACK_SKIP_BUNDLE=1   Skip electron-builder (stop after packing)
  */
@@ -56,11 +57,13 @@ if (process.env.BYCLAW_PACK_SKIP_CLONE !== "1") {
   console.log("\n Skipping nanobot clone (BYCLAW_PACK_SKIP_CLONE=1)");
 }
 
-// ── 2. Sync webui source from vendor ─────────────────────────────
-node("scripts/build/sync-webui.mjs");
-
-// sync-webui rewrites packages/web/package.json with vendor React deps
-pnpm("install", "--no-frozen-lockfile");
+// ── 2. Sync webui source from vendor (import-only; CI uses packages/web in repo) ─
+if (process.env.BYCLAW_PACK_SYNC_WEBUI === "1") {
+  node("scripts/build/sync-webui.mjs");
+  pnpm("install", "--no-frozen-lockfile");
+} else {
+  console.log("\n⊘ Skipping vendor webui sync (packages/web is source of truth)");
+}
 
 // ── 2b. Brand icons (from source JPG when present) ───────────────
 node("scripts/build/ensure-brand-icons.mjs");
