@@ -2,9 +2,9 @@ name: Build
 
 on:
   push:
-    branches: [feat/cross-platform, main, master]
+    branches: [feat/cross-platform, feat/installer-branding, main, master]
   pull_request:
-    branches: [feat/cross-platform, main, master]
+    branches: [feat/cross-platform, feat/installer-branding, main, master]
   workflow_dispatch:
 
 jobs:

@@ -59,6 +59,13 @@ export async function fetchBootstrap(
   return body;
 }
 
+const TRANSIENT_BOOTSTRAP_ERROR_RE =
+  /failed to fetch|networkerror|network request failed|timed out|http 502|http 503|http 504/i;
+
+export function isTransientBootstrapError(message: string): boolean {
+  return TRANSIENT_BOOTSTRAP_ERROR_RE.test(message);
+}
+
 /** Derive a WebSocket URL from the current window location and the server-provided path.
  *
  * Keeps the path segment exactly as the server registered it: the root ``/``

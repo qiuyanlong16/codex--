@@ -20,6 +20,7 @@ import { useSessions } from "@/hooks/useSessions";
 import { useDeferredTitleRefresh } from "@/hooks/useDeferredTitleRefresh";
 import { useSidebarState } from "@/hooks/useSidebarState";
 import { useSkills } from "@/hooks/useSkills";
+import { StartupShell } from "@/components/startup/StartupShell";
 import { useNativeBootGate } from "@/hooks/useNativeBootGate";
 import { ThemeProvider, useTheme } from "@/hooks/useTheme";
 import { cn } from "@/lib/utils";
@@ -27,6 +28,7 @@ import {
   clearSavedSecret,
   deriveWsUrl,
   fetchBootstrap,
+  isTransientBootstrapError,
   loadSavedSecret,
   saveSecret,
 } from "@/lib/bootstrap";
@@ -45,7 +47,7 @@ import type {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { fetchSettings, fetchWorkspaces } from "@/lib/api";
-import { getElectronApi } from "@/lib/electron-host";
+import { getElectronApi, isLikelyElectronShell } from "@/lib/electron-host";
 import {
   createRuntimeHost,
   getHostApi,
@@ -381,42 +383,55 @@ export default function App() {
       let cancelled = false;
       (async () => {
         setState({ status: "loading" });
-        try {
-          const boot = await fetchBootstrap("", secret);
+        const electronShell = isLikelyElectronShell();
+        const maxAttempts = electronShell ? 90 : 1;
+        for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
           if (cancelled) return;
-          if (secret) saveSecret(secret);
-          const url = deriveWsUrl(boot.ws_path, boot.token, boot.ws_url);
-          const runtimeSurface = toRuntimeSurface(boot.runtime_surface);
-          const runtimeHost = createRuntimeHost(runtimeSurface, boot.runtime_capabilities);
-          const client = new NanobotClient({
-            url,
-            socketFactory: runtimeHost.socketFactory,
-            onReauth: async () => {
-              try {
-                const refreshed = await refreshReadyClient(client, runtimeSurface);
-                return refreshed.url;
-              } catch {
-                return null;
-              }
-            },
-          });
-          bootstrapSecretRef.current = secret;
-          client.connect();
-          setState({
-            status: "ready",
-            client,
-            token: boot.token,
-            tokenExpiresAt: bootstrapTokenExpiresAt(boot.expires_in),
-            modelName: boot.model_name ?? null,
-            runtimeSurface,
-          });
-        } catch (e) {
-          if (cancelled) return;
-          const msg = (e as Error).message;
-          if (msg.includes("HTTP 401") || msg.includes("HTTP 403")) {
-            setState({ status: "auth", failed: !!secret });
-          } else {
+          try {
+            const boot = await fetchBootstrap("", secret, electronShell ? 5_000 : undefined);
+            if (cancelled) return;
+            if (secret) saveSecret(secret);
+            const url = deriveWsUrl(boot.ws_path, boot.token, boot.ws_url);
+            const runtimeSurface = toRuntimeSurface(boot.runtime_surface);
+            const runtimeHost = createRuntimeHost(runtimeSurface, boot.runtime_capabilities);
+            const client = new NanobotClient({
+              url,
+              socketFactory: runtimeHost.socketFactory,
+              onReauth: async () => {
+                try {
+                  const refreshed = await refreshReadyClient(client, runtimeSurface);
+                  return refreshed.url;
+                } catch {
+                  return null;
+                }
+              },
+            });
+            bootstrapSecretRef.current = secret;
+            client.connect();
+            setState({
+              status: "ready",
+              client,
+              token: boot.token,
+              tokenExpiresAt: bootstrapTokenExpiresAt(boot.expires_in),
+              modelName: boot.model_name ?? null,
+              runtimeSurface,
+            });
+            return;
+          } catch (e) {
+            if (cancelled) return;
+            const msg = (e as Error).message;
+            if (msg.includes("HTTP 401") || msg.includes("HTTP 403")) {
+              setState({ status: "auth", failed: !!secret });
+              return;
+            }
+            if (electronShell && isTransientBootstrapError(msg) && attempt < maxAttempts - 1) {
+              await new Promise((resolve) => {
+                window.setTimeout(resolve, 500 + attempt * 100);
+              });
+              continue;
+            }
             setState({ status: "error", message: msg });
+            return;
           }
         }
       })();
@@ -446,13 +461,17 @@ export default function App() {
   useEffect(() => {
     if (nativeBoot.blocking) return;
     // Packaged Electron loads file:// first; bootstrap must wait for gateway URL.
-    if (getElectronApi() && window.location.protocol === "file:") return;
+    if (isLikelyElectronShell() && window.location.protocol === "file:") return;
     const saved = loadSavedSecret();
     return bootstrapWithSecret(saved);
   }, [bootstrapWithSecret, nativeBoot.blocking]);
 
   if (nativeBoot.blocking && nativeBoot.shell) {
     return nativeBoot.shell;
+  }
+
+  if (state.status === "loading" && isLikelyElectronShell()) {
+    return <StartupShell phase="ready" failed={null} />;
   }
 
   if (state.status === "loading") {

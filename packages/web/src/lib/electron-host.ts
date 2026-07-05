@@ -43,3 +43,11 @@ export function getElectronApi(): ElectronHostApi | null {
 export function isElectronHost(): boolean {
   return getElectronApi() != null;
 }
+
+/** True when running inside the packaged shell before preload is guaranteed. */
+export function isLikelyElectronShell(): boolean {
+  if (isElectronHost()) return true;
+  if (typeof window === "undefined") return false;
+  if (window.location.protocol === "file:") return true;
+  return (window.navigator.userAgent ?? "").includes("Electron");
+}
