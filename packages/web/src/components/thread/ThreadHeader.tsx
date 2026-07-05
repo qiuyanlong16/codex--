@@ -12,6 +12,9 @@ interface ThreadHeaderProps {
   onToggleTheme: () => void;
   hideSidebarToggleForHostChrome?: boolean;
   hostChromeTitleInset?: boolean;
+  hostSidebarCollapsed?: boolean;
+  onHostSidebarPreviewEnter?: () => void;
+  onHostSidebarPreviewLeave?: () => void;
   hideThemeButton?: boolean;
   minimal?: boolean;
   promptNavigatorAction?: ReactNode;
@@ -25,12 +28,18 @@ export function ThreadHeader({
   onToggleTheme,
   hideSidebarToggleForHostChrome = false,
   hostChromeTitleInset = false,
+  hostSidebarCollapsed = false,
+  onHostSidebarPreviewEnter,
+  onHostSidebarPreviewLeave,
   hideThemeButton = false,
   minimal = false,
   promptNavigatorAction,
   sessionInfoAction,
 }: ThreadHeaderProps) {
   const { t } = useTranslation();
+  const showHostSidebarPreviewToggle =
+    hostSidebarCollapsed &&
+    Boolean(onHostSidebarPreviewEnter || onHostSidebarPreviewLeave);
 
   return (
     <div
@@ -45,7 +54,12 @@ export function ThreadHeader({
           variant="ghost"
           size="icon"
           aria-label={t("thread.header.toggleSidebar")}
+          data-testid={showHostSidebarPreviewToggle ? "host-sidebar-toggle" : undefined}
           onClick={onToggleSidebar}
+          onFocus={showHostSidebarPreviewToggle ? onHostSidebarPreviewEnter : undefined}
+          onBlur={showHostSidebarPreviewToggle ? onHostSidebarPreviewLeave : undefined}
+          onMouseEnter={showHostSidebarPreviewToggle ? onHostSidebarPreviewEnter : undefined}
+          onMouseLeave={showHostSidebarPreviewToggle ? onHostSidebarPreviewLeave : undefined}
           className={cn(
             "h-7 w-7 rounded-md text-muted-foreground hover:bg-accent/35 hover:text-foreground",
             hideSidebarToggleForHostChrome && "lg:hidden",

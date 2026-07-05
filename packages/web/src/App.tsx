@@ -24,6 +24,7 @@ import { StartupShell } from "@/components/startup/StartupShell";
 import { useNativeBootGate } from "@/hooks/useNativeBootGate";
 import { useElectronGatewayUrl } from "@/hooks/useElectronGateway";
 import { HostBrandMark } from "@/components/host/HostBrandMark";
+import { isMacNativeHost, useNativeHostPlatform } from "@/hooks/useNativeHostPlatform";
 import { cn } from "@/lib/utils";
 import {
   clearSavedSecret,
@@ -730,6 +731,9 @@ function Shell({
     settingsSnapshot?.surface ?? settingsSnapshot?.runtime_surface ?? runtimeSurface;
   const showHostChrome =
     isLikelyElectronShell() || getElectronApi() != null || effectiveRuntimeSurface === "native";
+  const nativeHostPlatform = useNativeHostPlatform();
+  const isMacHost = isMacNativeHost(showHostChrome, nativeHostPlatform);
+  const showHostTopChrome = showHostChrome && !isMacHost;
   const showMainSidebar = view !== "settings";
 
   const navigate = useCallback(
@@ -1564,10 +1568,12 @@ function Shell({
 
   useEffect(() => {
     document.documentElement.classList.toggle("native-host", showHostChrome);
+    document.documentElement.classList.toggle("native-host-mac", isMacHost);
     return () => {
       document.documentElement.classList.remove("native-host");
+      document.documentElement.classList.remove("native-host-mac");
     };
-  }, [showHostChrome]);
+  }, [showHostChrome, isMacHost]);
 
   return (
     <ThemeProvider theme={theme}>
@@ -1577,7 +1583,7 @@ function Shell({
           showHostChrome && "host-window-shell",
         )}
       >
-        {showHostChrome ? (
+        {showHostTopChrome ? (
           <HostChrome
             onToggleSidebar={showMainSidebar ? toggleHostSidebar : undefined}
             onSidebarPreviewEnter={openHostSidebarPreview}
@@ -1633,7 +1639,9 @@ function Shell({
                   <Sidebar
                     {...sidebarProps}
                     collapsed={!showHostChrome && !hostSidebarOpen}
-                    hostChromeInset={showHostChrome}
+                    hostChromeInset={showHostTopChrome}
+                    hostSidebarGlass={showHostChrome}
+                    hostSidebarHeaderToggle={isMacHost}
                     onCollapse={closeHostSidebar}
                     onExpand={openHostSidebar}
                   />
@@ -1653,7 +1661,9 @@ function Shell({
               <div className="h-full w-full overflow-hidden host-sidebar-glass shadow-2xl">
                 <Sidebar
                   {...sidebarProps}
-                  hostChromeInset={showHostChrome}
+                  hostChromeInset={showHostTopChrome}
+                  hostSidebarGlass={showHostChrome}
+                  hostSidebarHeaderToggle={isMacHost}
                   onCollapse={closeHostSidebar}
                   onExpand={openHostSidebar}
                 />
@@ -1714,8 +1724,17 @@ function Shell({
                 onTurnEnd={onTurnEnd}
                 theme={theme}
                 onToggleTheme={toggle}
-                hideSidebarToggleForHostChrome
-                hostChromeTitleInset={hostSidebarCollapsed}
+                hideSidebarToggleForHostChrome={
+                  showHostTopChrome || (isMacHost && hostSidebarOpen)
+                }
+                hostChromeTitleInset={showHostTopChrome && hostSidebarCollapsed}
+                hostSidebarCollapsed={showHostChrome && hostSidebarCollapsed}
+                onHostSidebarPreviewEnter={
+                  isMacHost && hostSidebarCollapsed ? openHostSidebarPreview : undefined
+                }
+                onHostSidebarPreviewLeave={
+                  isMacHost && hostSidebarCollapsed ? scheduleHostSidebarPreviewClose : undefined
+                }
                 hideHeader={false}
                 workspaceScope={activeWorkspaceScope}
                 workspaceDefaultScope={workspaces?.default_scope ?? null}
@@ -1746,7 +1765,7 @@ function Shell({
                   onRestart={onRestart}
                   onNativeEngineRestart={onNativeEngineRestart}
                   isRestarting={isRestarting}
-                  hostChromeInset={showHostChrome}
+                  hostChromeInset={showHostTopChrome}
                 />
               </div>
             )}

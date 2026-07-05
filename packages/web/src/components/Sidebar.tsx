@@ -4,6 +4,7 @@ import {
   Brain,
   CalendarClock,
   Menu,
+  PanelLeft,
   Search,
   Settings,
   SquarePen,
@@ -11,6 +12,7 @@ import {
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
+import { HostBrandMark } from "@/components/host/HostBrandMark";
 import { ChatList } from "@/components/ChatList";
 import { ConnectionBadge } from "@/components/ConnectionBadge";
 import { Button } from "@/components/ui/button";
@@ -57,6 +59,8 @@ interface SidebarProps {
   archivedCount?: number;
   defaultWorkspacePath?: string | null;
   hostChromeInset?: boolean;
+  hostSidebarGlass?: boolean;
+  hostSidebarHeaderToggle?: boolean;
 }
 
 type NavigatorWithUserAgentData = Navigator & {
@@ -82,6 +86,7 @@ export function Sidebar(props: SidebarProps) {
   const collapsed = Boolean(props.collapsed);
   const toggleLabel = t("thread.header.toggleSidebar");
   const newChatShortcut = newChatShortcutLabel();
+  const useSidebarGlass = Boolean(props.hostSidebarGlass);
 
   return (
     <nav
@@ -89,38 +94,58 @@ export function Sidebar(props: SidebarProps) {
       aria-label={t("sidebar.navigation")}
       className={cn(
         "flex h-full w-full min-w-0 flex-col text-sidebar-foreground",
-        props.hostChromeInset ? "bg-transparent" : "bg-sidebar",
-        !props.hostChromeInset && "border-r border-sidebar-border/60",
+        useSidebarGlass ? "bg-transparent" : "bg-sidebar",
+        !useSidebarGlass && "border-r border-sidebar-border/60",
       )}
     >
       <div
         className={cn(
-          "flex items-center px-3 pb-2.5 pt-3",
+          "flex items-center gap-2 px-3 pb-2.5",
+          props.hostChromeInset ? "pt-[2.85rem]" : "pt-3",
           collapsed ? "w-14 justify-start" : "justify-between",
         )}
       >
-        <button
-          type="button"
-          aria-label={collapsed ? toggleLabel : undefined}
-          aria-hidden={collapsed ? undefined : true}
-          title={collapsed ? toggleLabel : undefined}
-          onClick={collapsed ? props.onExpand : undefined}
-          tabIndex={collapsed ? 0 : -1}
-          className={cn(
-            "flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-xl transition-colors",
-            collapsed
-              ? "-ml-0.5 hover:bg-sidebar-accent/75"
-              : "pointer-events-none -ml-0.5",
-          )}
-        >
-          <img
-            src="./brand/nanobot_icon.png"
-            alt=""
-            className="h-8 w-8 select-none object-contain"
-            draggable={false}
+        {props.hostSidebarHeaderToggle && !collapsed ? (
+          <HostBrandMark
+            className="pointer-events-none min-w-0 flex-1 items-center"
+            surface="chrome"
           />
-        </button>
-        {!collapsed && !props.hostChromeInset && (
+        ) : (
+          <button
+            type="button"
+            aria-label={collapsed ? toggleLabel : undefined}
+            aria-hidden={collapsed ? undefined : true}
+            title={collapsed ? toggleLabel : undefined}
+            onClick={collapsed ? props.onExpand : undefined}
+            tabIndex={collapsed ? 0 : -1}
+            className={cn(
+              "flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-xl transition-colors",
+              collapsed
+                ? "-ml-0.5 hover:bg-sidebar-accent/75"
+                : "pointer-events-none -ml-0.5",
+            )}
+          >
+            <img
+              src="./brand/nanobot_icon.png"
+              alt=""
+              className="h-8 w-8 select-none object-contain"
+              draggable={false}
+            />
+          </button>
+        )}
+        {!collapsed && props.hostSidebarHeaderToggle ? (
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label={toggleLabel}
+            data-testid="host-sidebar-toggle"
+            onClick={props.onCollapse}
+            className="h-7 w-7 rounded-lg text-muted-foreground/85 hover:bg-sidebar-accent/75 hover:text-sidebar-foreground"
+          >
+            <PanelLeft className="h-[15px] w-[15px]" strokeWidth={1.75} />
+          </Button>
+        ) : null}
+        {!collapsed && !props.hostChromeInset && !props.hostSidebarHeaderToggle ? (
           <Button
             variant="ghost"
             size="icon"
@@ -130,7 +155,7 @@ export function Sidebar(props: SidebarProps) {
           >
             <Menu className="h-3.5 w-3.5" />
           </Button>
-        )}
+        ) : null}
       </div>
 
       <div
