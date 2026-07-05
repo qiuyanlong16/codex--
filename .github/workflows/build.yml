@@ -42,6 +42,7 @@ jobs:
       - run: node scripts/build/clone-nanobot.mjs
       - run: node scripts/build/sync-webui.mjs
       - run: pnpm install --no-frozen-lockfile
+      - run: pnpm build:shared
       - run: pnpm build:web
       - run: pnpm build:shell
       - run: node scripts/build/create-python-venv.mjs
@@ -77,6 +78,7 @@ jobs:
       - run: node scripts/build/clone-nanobot.mjs
       - run: node scripts/build/sync-webui.mjs
       - run: pnpm install --no-frozen-lockfile
+      - run: pnpm build:shared
       - run: pnpm build:web
       - run: pnpm build:shell
       - run: node scripts/build/create-python-venv.mjs

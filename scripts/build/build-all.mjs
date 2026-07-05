@@ -63,6 +63,7 @@ node("scripts/build/sync-webui.mjs");
 pnpm("install", "--no-frozen-lockfile");
 
 // ── 3. Build web UI ──────────────────────────────────────────────
+pnpm("build:shared");
 pnpm("build:web");
 
 // ── 4. Build Electron shell ──────────────────────────────────────
