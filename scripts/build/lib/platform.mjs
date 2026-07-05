@@ -54,12 +54,41 @@ export function resolveTarExe(spawnSync) {
   return null;
 }
 
+export function detectPythonLibVersion(venvRoot) {
+  const libDir = path.join(venvRoot, "lib");
+  if (!fs.existsSync(libDir)) return null;
+  for (const entry of fs.readdirSync(libDir)) {
+    if (/^python3\.\d+$/.test(entry)) return entry;
+  }
+  return null;
+}
+
+export function venvPythonExecutable(venvRoot) {
+  if (isWindowsTarget()) {
+    return path.join(venvRoot, "Scripts", "python.exe");
+  }
+  const binDir = path.join(venvRoot, "bin");
+  if (fs.existsSync(binDir)) {
+    for (const name of ["python3", "python"]) {
+      const candidate = path.join(binDir, name);
+      if (fs.existsSync(candidate)) return candidate;
+    }
+    const versioned = fs
+      .readdirSync(binDir)
+      .filter((entry) => /^python3\.\d+$/.test(entry))
+      .sort()
+      .reverse();
+    if (versioned.length > 0) {
+      return path.join(binDir, versioned[0]);
+    }
+  }
+  return path.join(venvRoot, "bin", "python3");
+}
+
 export function fixPortablePyvenvCfg(venvDir) {
   const cfgPath = path.join(venvDir, "pyvenv.cfg");
   if (!fs.existsSync(cfgPath)) return;
-  const pythonExe = isWindowsTarget()
-    ? path.join(venvDir, "Scripts", "python.exe")
-    : path.join(venvDir, "bin", "python3");
+  const pythonExe = venvPythonExecutable(venvDir);
   let content = fs.readFileSync(cfgPath, "utf8");
   content = content.replace(/^home\s*=.*$/m, `home = ${path.dirname(pythonExe)}`);
   content = content.replace(/^executable\s*=.*$/m, `executable = ${pythonExe}`);

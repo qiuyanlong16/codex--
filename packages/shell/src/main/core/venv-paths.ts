@@ -7,16 +7,30 @@ export function venvScriptsDir(venvRoot: string): string {
     : path.join(venvRoot, "bin");
 }
 
+function unixVenvPythonInBin(binDir: string): string | null {
+  if (!fs.existsSync(binDir)) return null;
+  for (const name of ["python3", "python"]) {
+    const candidate = path.join(binDir, name);
+    if (fs.existsSync(candidate)) return candidate;
+  }
+  const versioned = fs
+    .readdirSync(binDir)
+    .filter((entry) => /^python3\.\d+$/.test(entry))
+    .sort()
+    .reverse();
+  for (const name of versioned) {
+    const candidate = path.join(binDir, name);
+    if (fs.existsSync(candidate)) return candidate;
+  }
+  return null;
+}
+
 export function venvPythonPath(venvRoot: string): string {
   if (process.platform === "win32") {
     return path.join(venvRoot, "Scripts", "python.exe");
   }
   const binDir = path.join(venvRoot, "bin");
-  for (const name of ["python3", "python"]) {
-    const candidate = path.join(binDir, name);
-    if (fs.existsSync(candidate)) return candidate;
-  }
-  return path.join(binDir, "python3");
+  return unixVenvPythonInBin(binDir) ?? path.join(binDir, "python3");
 }
 
 export function findSitePackagesDir(venvRoot: string): string | null {

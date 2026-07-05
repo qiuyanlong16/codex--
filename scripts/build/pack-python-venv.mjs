@@ -23,11 +23,13 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  detectPythonLibVersion,
   findSitePackagesDir,
   fixPortablePyvenvCfg,
   isWindowsTarget,
   resolveTarExe,
   sitePackagesTarPrefix,
+  venvPythonExecutable,
 } from "./lib/platform.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
@@ -367,6 +369,115 @@ function replaceExeLaunchersWithCmd() {
 }
 
 // ---------------------------------------------------------------------------
+// 1b. Make macOS venv self-contained (real binaries + stdlib, not CI symlinks)
+// ---------------------------------------------------------------------------
+
+function mergeStdlibFromBase(baseLibPy, venvLibPy) {
+  fs.mkdirSync(venvLibPy, { recursive: true });
+  for (const entry of fs.readdirSync(baseLibPy, { withFileTypes: true })) {
+    if (entry.name === "site-packages") continue;
+    const src = path.join(baseLibPy, entry.name);
+    const dest = path.join(venvLibPy, entry.name);
+    if (entry.isDirectory()) copyDirSync(src, dest);
+    else fs.copyFileSync(src, dest);
+  }
+}
+
+function makeMacVenvSelfContained() {
+  const pyvenvCfg = path.join(VENV_DIR, "pyvenv.cfg");
+  if (!fs.existsSync(pyvenvCfg)) {
+    console.error("[pack-venv] ERROR: pyvenv.cfg not found");
+    process.exit(1);
+  }
+
+  const cfgContent = fs.readFileSync(pyvenvCfg, "utf8");
+  const homeMatch = cfgContent.match(/^home\s*=\s*(.+)$/m);
+  if (!homeMatch) {
+    console.error("[pack-venv] ERROR: no 'home' in pyvenv.cfg");
+    process.exit(1);
+  }
+
+  const baseBin = homeMatch[1].trim();
+  const basePrefix = path.dirname(baseBin);
+  const pyVersion = detectPythonLibVersion(VENV_DIR);
+  if (!pyVersion) {
+    console.error("[pack-venv] ERROR: could not detect python lib version in venv");
+    process.exit(1);
+  }
+
+  const binDir = path.join(VENV_DIR, "bin");
+  if (!fs.existsSync(binDir)) {
+    console.error("[pack-venv] ERROR: venv bin/ not found");
+    process.exit(1);
+  }
+
+  const versionedName =
+    fs.readdirSync(binDir).find((entry) => entry === pyVersion) ??
+    fs.readdirSync(binDir).find((entry) => /^python3\.\d+$/.test(entry));
+  if (!versionedName) {
+    console.error("[pack-venv] ERROR: no versioned python binary in venv bin/");
+    process.exit(1);
+  }
+
+  let realPython;
+  try {
+    realPython = fs.realpathSync(path.join(binDir, versionedName));
+  } catch (err) {
+    console.error("[pack-venv] ERROR: could not resolve venv python binary", err);
+    process.exit(1);
+  }
+  console.log(`[pack-venv] macOS base prefix: ${basePrefix}`);
+  console.log(`[pack-venv] macOS real python: ${realPython}`);
+
+  for (const name of new Set([versionedName, "python3", "python"])) {
+    const dest = path.join(binDir, name);
+    fs.copyFileSync(realPython, dest);
+    fs.chmodSync(dest, 0o755);
+  }
+  console.log("[pack-venv] materialized python binaries in bin/");
+
+  const baseLibPy = path.join(basePrefix, "lib", pyVersion);
+  const venvLibPy = path.join(VENV_DIR, "lib", pyVersion);
+  if (!fs.existsSync(baseLibPy)) {
+    console.error("[pack-venv] ERROR: base stdlib not found at", baseLibPy);
+    process.exit(1);
+  }
+  mergeStdlibFromBase(baseLibPy, venvLibPy);
+  console.log(`[pack-venv] merged stdlib into lib/${pyVersion}/`);
+
+  const includeDir = path.join(VENV_DIR, "include");
+  const venvIncludePy = path.join(includeDir, pyVersion);
+  const baseIncludePy = path.join(basePrefix, "include", pyVersion);
+  if (fs.existsSync(venvIncludePy) && fs.lstatSync(venvIncludePy).isSymbolicLink()) {
+    const target = fs.realpathSync(venvIncludePy);
+    fs.rmSync(venvIncludePy, { recursive: true, force: true });
+    copyDirSync(target, venvIncludePy);
+  } else if (!fs.existsSync(venvIncludePy) && fs.existsSync(baseIncludePy)) {
+    fs.mkdirSync(includeDir, { recursive: true });
+    copyDirSync(baseIncludePy, venvIncludePy);
+  }
+
+  fixPortablePyvenvCfg(VENV_DIR);
+
+  const py = venvPythonExecutable(VENV_DIR);
+  const versionProbe = spawnSync(py, ["--version"], { encoding: "utf8", stdio: "pipe" });
+  if (versionProbe.status !== 0) {
+    const detail = (versionProbe.stderr || versionProbe.stdout || "").toString().trim();
+    console.error("[pack-venv] ERROR: bundled python --version failed:", detail);
+    process.exit(1);
+  }
+  console.log(`[pack-venv] portable python OK: ${(versionProbe.stdout || versionProbe.stderr || "").toString().trim()}`);
+
+  const importProbe = spawnSync(py, ["-c", "import nanobot"], { encoding: "utf8", stdio: "pipe" });
+  if (importProbe.status !== 0) {
+    const detail = (importProbe.stderr || importProbe.stdout || "").toString().trim();
+    console.error("[pack-venv] ERROR: bundled python cannot import nanobot:", detail);
+    process.exit(1);
+  }
+  console.log("[pack-venv] venv is now self-contained on macOS");
+}
+
+// ---------------------------------------------------------------------------
 // 2. Copy webui dist into venv
 // ---------------------------------------------------------------------------
 
@@ -559,7 +670,7 @@ if (isWindowsTarget()) {
   makeVenvSelfContained();
   replaceExeLaunchersWithCmd();
 } else {
-  fixPortablePyvenvCfg(VENV_DIR);
+  makeMacVenvSelfContained();
 }
 
 // Step 1: Copy webui dist

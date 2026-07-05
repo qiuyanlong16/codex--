@@ -174,6 +174,14 @@ export async function ensureVenvExtracted(): Promise<void> {
     target: fallbackVenv,
   });
 
+  // A previous failed extract can leave bin/lib without a usable interpreter.
+  if (!fs.existsSync(fallbackPython) && fs.existsSync(fallbackVenv)) {
+    mainLog.warn("nanobot", "removing incomplete venv before re-extract", {
+      fallbackVenv,
+    });
+    fs.rmSync(fallbackVenv, { recursive: true, force: true });
+  }
+
   try {
     fs.mkdirSync(fallbackResources, { recursive: true });
 
@@ -225,10 +233,13 @@ export async function ensureVenvExtracted(): Promise<void> {
     } else {
       // List directory contents to help diagnose what went wrong
       let dirContents: string[] = [];
+      let binContents: string[] = [];
       try { dirContents = fs.readdirSync(fallbackVenv); } catch { /* ignore */ }
+      try { binContents = fs.readdirSync(path.join(fallbackVenv, "bin")); } catch { /* ignore */ }
       mainLog.error("nanobot", "venv extraction done but python interpreter missing", {
         fallbackVenv,
         dirContents,
+        binContents,
       });
       throw new Error(`venv_extract_incomplete: python not found at ${fallbackPython}, dir contents: ${dirContents.join(", ") || "(empty)"}`);
     }
