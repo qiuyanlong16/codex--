@@ -3,7 +3,7 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { mainLog } from "./logging/main-logger.js";
 
-const FRAMEWORK_PREFIX = "/Library/Frameworks/Python.framework/Versions/";
+const FRAMEWORK_ROOT = "/Library/Frameworks/Python.framework/Versions/";
 
 function pythonMinorFromLibVersion(pyVersion: string): string | null {
   const match = pyVersion.match(/^python(\d+\.\d+)$/);
@@ -13,7 +13,13 @@ function pythonMinorFromLibVersion(pyVersion: string): string | null {
 function frameworkPythonRef(pyVersion: string): string {
   const minor = pythonMinorFromLibVersion(pyVersion);
   if (!minor) throw new Error(`invalid python lib version: ${pyVersion}`);
-  return `${FRAMEWORK_PREFIX}${minor}/Python`;
+  return `${FRAMEWORK_ROOT}${minor}/Python`;
+}
+
+function frameworkLibPrefix(pyVersion: string): string {
+  const minor = pythonMinorFromLibVersion(pyVersion);
+  if (!minor) throw new Error(`invalid python lib version: ${pyVersion}`);
+  return `${FRAMEWORK_ROOT}${minor}/lib/`;
 }
 
 function libpythonFileName(pyVersion: string): string {
@@ -41,10 +47,29 @@ function runInstallNameTool(args: string[]): void {
   }
 }
 
-function changeFrameworkRef(filePath: string, frameworkRef: string, newRef: string): void {
+function loaderPathRef(fromFile: string, toFile: string): string {
+  let rel = path.relative(path.dirname(fromFile), toFile);
+  if (!rel.startsWith(".")) rel = `./${rel}`;
+  return `@loader_path/${rel.split(path.sep).join("/")}`;
+}
+
+function listLoadedLibraries(filePath: string): string[] {
   const probe = spawnSync("otool", ["-L", filePath], { encoding: "utf8" });
-  if (probe.status !== 0 || !probe.stdout.includes(frameworkRef)) return;
-  runInstallNameTool(["-change", frameworkRef, newRef, filePath]);
+  if (probe.status !== 0) return [];
+  const refs: string[] = [];
+  for (const line of probe.stdout.split("\n").slice(1)) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    const ref = trimmed.split(" (")[0]?.trim();
+    if (ref) refs.push(ref);
+  }
+  return refs;
+}
+
+function changeLoadedLibrary(filePath: string, oldRef: string, newRef: string): void {
+  if (oldRef === newRef) return;
+  if (!listLoadedLibraries(filePath).includes(oldRef)) return;
+  runInstallNameTool(["-change", oldRef, newRef, filePath]);
 }
 
 function copyDirSync(src: string, dest: string): void {
@@ -57,71 +82,51 @@ function copyDirSync(src: string, dest: string): void {
   }
 }
 
-function fixFrameworkRefsInTree(dir: string, frameworkRef: string, newRef: string): void {
+function walkMachOFiles(dir: string, visitor: (filePath: string) => void): void {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) {
-      fixFrameworkRefsInTree(full, frameworkRef, newRef);
+      walkMachOFiles(full, visitor);
       continue;
     }
-    if (!entry.name.endsWith(".so") && !entry.name.endsWith(".dylib")) continue;
     if (!isMachO(full)) continue;
-    changeFrameworkRef(full, frameworkRef, newRef);
+    visitor(full);
   }
 }
 
-function signMachOFilesInTree(dir: string): void {
-  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-    const full = path.join(dir, entry.name);
-    if (entry.isDirectory()) {
-      signMachOFilesInTree(full);
-      continue;
-    }
-    if (!isMachO(full)) continue;
-    fs.chmodSync(full, fs.statSync(full).mode | 0o755);
-    spawnSync("codesign", ["-s", "-", "-f", full], { stdio: "pipe" });
+function resolveBundledTarget(venvRoot: string, pyVersion: string, ref: string): string | null {
+  const libDir = path.join(venvRoot, "lib");
+  if (ref === frameworkPythonRef(pyVersion)) {
+    return path.join(libDir, libpythonFileName(pyVersion));
   }
+  const libPrefix = frameworkLibPrefix(pyVersion);
+  if (ref.startsWith(libPrefix)) {
+    return path.join(libDir, path.basename(ref));
+  }
+  return null;
 }
 
 function fixMacPythonDylibs(venvRoot: string, pyVersion: string): void {
-  const frameworkRef = frameworkPythonRef(pyVersion);
   const libName = libpythonFileName(pyVersion);
   const libPath = path.join(venvRoot, "lib", libName);
   const realPy = path.join(venvRoot, "lib", "Resources", "Python.app", "Contents", "MacOS", "Python");
-  const binDir = path.join(venvRoot, "bin");
 
   if (!fs.existsSync(libPath) || !fs.existsSync(realPy)) {
     throw new Error("bundled Python runtime files are incomplete");
   }
 
   runInstallNameTool(["-id", `@loader_path/${libName}`, libPath]);
-  changeFrameworkRef(libPath, frameworkRef, `@loader_path/${libName}`);
-  changeFrameworkRef(realPy, frameworkRef, `@loader_path/../../../../${libName}`);
 
-  if (fs.existsSync(binDir)) {
-    for (const name of fs.readdirSync(binDir)) {
-      const binPath = path.join(binDir, name);
-      if (!fs.statSync(binPath).isFile() || !isMachO(binPath)) continue;
-      changeFrameworkRef(binPath, frameworkRef, `@loader_path/../lib/${libName}`);
+  walkMachOFiles(venvRoot, (filePath) => {
+    for (const ref of listLoadedLibraries(filePath)) {
+      const target = resolveBundledTarget(venvRoot, pyVersion, ref);
+      if (!target || !fs.existsSync(target)) continue;
+      changeLoadedLibrary(filePath, ref, loaderPathRef(filePath, target));
     }
-  }
-
-  for (const entry of fs.readdirSync(path.join(venvRoot, "lib"))) {
-    if (!entry.endsWith(".dylib")) continue;
-    changeFrameworkRef(path.join(venvRoot, "lib", entry), frameworkRef, `@loader_path/${entry}`);
-  }
-
-  const sitePackages = path.join(venvRoot, "lib", pyVersion, "site-packages");
-  if (fs.existsSync(sitePackages)) {
-    fixFrameworkRefsInTree(
-      sitePackages,
-      frameworkRef,
-      `@loader_path/../../../../../../lib/${libName}`,
-    );
-  }
+  });
 }
 
-function copyRepairRuntime(repairRoot: string, venvRoot: string, pyVersion: string): void {
+function copyRepairRuntime(repairRoot: string, venvRoot: string): void {
   const resourcesSrc = path.join(repairRoot, "Resources", "Python.app");
   const resourcesDest = path.join(venvRoot, "lib", "Resources", "Python.app");
   if (!fs.existsSync(resourcesSrc)) {
@@ -131,14 +136,13 @@ function copyRepairRuntime(repairRoot: string, venvRoot: string, pyVersion: stri
   fs.rmSync(resourcesDest, { recursive: true, force: true });
   copyDirSync(resourcesSrc, resourcesDest);
 
-  const libName = libpythonFileName(pyVersion);
-  const libSrc = path.join(repairRoot, libName);
-  if (!fs.existsSync(libSrc)) {
-    throw new Error(`repair bundle missing ${libName}`);
+  const destLibDir = path.join(venvRoot, "lib");
+  fs.mkdirSync(destLibDir, { recursive: true });
+  for (const entry of fs.readdirSync(repairRoot)) {
+    if (!entry.endsWith(".dylib")) continue;
+    fs.copyFileSync(path.join(repairRoot, entry), path.join(destLibDir, entry));
+    fs.chmodSync(path.join(destLibDir, entry), 0o755);
   }
-  fs.mkdirSync(path.join(venvRoot, "lib"), { recursive: true });
-  fs.copyFileSync(libSrc, path.join(venvRoot, "lib", libName));
-  fs.chmodSync(path.join(venvRoot, "lib", libName), 0o755);
 }
 
 function detectPythonLibVersionFromVenv(venvRoot: string): string | null {
@@ -161,14 +165,13 @@ export function ensureMacVenvPortable(venvRoot: string, repairRuntimeDir?: strin
   }
 
   const pythonAppPath = path.join(venvRoot, "lib", "Resources", "Python.app", "Contents", "MacOS", "Python");
-  const libName = libpythonFileName(pyVersion);
-  const libPath = path.join(venvRoot, "lib", libName);
+  const libPath = path.join(venvRoot, "lib", libpythonFileName(pyVersion));
 
   if ((!fs.existsSync(pythonAppPath) || !fs.existsSync(libPath)) && repairRuntimeDir) {
     mainLog.info("nanobot", "copying macOS python runtime repair bundle into venv", {
       repairRuntimeDir,
     });
-    copyRepairRuntime(repairRuntimeDir, venvRoot, pyVersion);
+    copyRepairRuntime(repairRuntimeDir, venvRoot);
   }
 
   if (!fs.existsSync(pythonAppPath) || !fs.existsSync(libPath)) {
@@ -177,6 +180,29 @@ export function ensureMacVenvPortable(venvRoot: string, repairRuntimeDir?: strin
 
   fixMacPythonDylibs(venvRoot, pyVersion);
   spawnSync("xattr", ["-cr", venvRoot], { stdio: "pipe" });
-  signMachOFilesInTree(venvRoot);
+  signEssentialMacBinaries(venvRoot, pyVersion);
   mainLog.info("nanobot", "macOS venv portability repair complete", { venvRoot, pyVersion });
+}
+
+function signEssentialMacBinaries(venvRoot: string, pyVersion: string): void {
+  const essentials = [
+    path.join(venvRoot, "bin", "python3"),
+    path.join(venvRoot, "bin", pyVersion),
+    path.join(venvRoot, "bin", "python"),
+    path.join(venvRoot, "lib", "Resources", "Python.app", "Contents", "MacOS", "Python"),
+  ];
+  for (const entry of fs.readdirSync(path.join(venvRoot, "lib"))) {
+    if (entry.endsWith(".dylib")) essentials.push(path.join(venvRoot, "lib", entry));
+  }
+  const dynload = path.join(venvRoot, "lib", pyVersion, "lib-dynload");
+  if (fs.existsSync(dynload)) {
+    for (const entry of fs.readdirSync(dynload)) {
+      if (entry.endsWith(".so")) essentials.push(path.join(dynload, entry));
+    }
+  }
+  for (const filePath of essentials) {
+    if (!fs.existsSync(filePath) || !isMachO(filePath)) continue;
+    fs.chmodSync(filePath, fs.statSync(filePath).mode | 0o755);
+    spawnSync("codesign", ["-s", "-", "-f", filePath], { stdio: "pipe" });
+  }
 }

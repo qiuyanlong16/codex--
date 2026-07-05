@@ -149,10 +149,28 @@ pnpm bundle
 
 ## 诊断工具
 
-`scripts/diag/` 提供 Windows 环境诊断与修复脚本：
+`scripts/diag/` 提供环境诊断与修复脚本：
 
-- `nanobot-startup-diagnostic.ps1` — 收集启动诊断信息
-- `nanobot-fix-venv.ps1` — 修复 Python venv 问题
+- `nanobot-startup-diagnostic.ps1` — 收集启动诊断信息（Windows）
+- `nanobot-fix-venv.ps1` — 修复 Python venv 问题（Windows）
+- `nanobot-fix-venv-mac.mjs` — 修复 macOS venv 对系统 `Python.framework` 的依赖（见下方说明）
+
+### macOS venv 启动失败
+
+**症状**：日志出现 `Library not loaded: /Library/Frameworks/Python.framework/Versions/3.12/...`
+
+**原因**：旧版安装包内的 `python-venv_*.tar` 未嵌入完整 Python 运行时。若执行 `rm -rf ~/.by-claw-nanobot/resources/python-venv`，应用会从**旧安装包**重新解压，问题会复现。
+
+**解决方案（二选一）**：
+
+1. **推荐**：安装 GitHub Actions 新构建的 Mac `.dmg`（含修复后的 venv 与 `python-darwin-runtime`）
+2. **临时修复**（不重新打包）：在 Mac 上运行
+   ```bash
+   node scripts/diag/nanobot-fix-venv-mac.mjs
+   ```
+   需要本机有 Python 3.12 框架，或已解压的 `/tmp/python312-fw/Versions/3.12`
+
+**注意**：在换新 `.dmg` 之前，不要随意删除 `~/.by-claw-nanobot/resources/python-venv`。
 
 ## 命名约定
 
