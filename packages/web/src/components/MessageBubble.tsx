@@ -27,6 +27,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { resolveGatewayHttpUrl } from "@/lib/gateway-url";
 import { cn } from "@/lib/utils";
 import { copyTextToClipboard } from "@/lib/clipboard";
 import { formatTurnLatency } from "@/lib/format";
@@ -484,6 +485,7 @@ function UserImageCell({
   onOpen?: () => void;
 }) {
   const hasUrl = typeof image.url === "string" && image.url.length > 0;
+  const resolvedUrl = hasUrl ? resolveGatewayHttpUrl(image.url!) : "";
   const tileClasses = cn(
     "relative overflow-hidden border border-border/60 bg-muted/40",
     size === "large"
@@ -506,7 +508,7 @@ function UserImageCell({
         )}
       >
         <img
-          src={image.url}
+          src={resolvedUrl}
           alt={image.name ?? ""}
           loading="lazy"
           decoding="async"

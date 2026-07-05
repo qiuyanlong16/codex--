@@ -11,6 +11,7 @@ import {
   fetchNanobotFeatures,
   fetchProviderModels,
   fetchSessionAutomations,
+  fetchSettings,
   fetchSettingsUsage,
   fetchSidebarState,
   fetchSkillDetail,
@@ -53,6 +54,21 @@ describe("webui API helpers", () => {
   afterEach(() => {
     vi.useRealTimers();
     vi.unstubAllGlobals();
+  });
+
+  it("builds absolute settings URL on packaged file:// shell", async () => {
+    vi.stubGlobal("window", {
+      location: { port: "", protocol: "file:", host: "" },
+    });
+    await fetchSettings("tok");
+
+    expect(fetch).toHaveBeenCalledWith(
+      "http://127.0.0.1:8766/api/settings",
+      expect.objectContaining({
+        headers: { Authorization: "Bearer tok" },
+        credentials: "same-origin",
+      }),
+    );
   });
 
   it("percent-encodes websocket keys when fetching webui-thread snapshot", async () => {
