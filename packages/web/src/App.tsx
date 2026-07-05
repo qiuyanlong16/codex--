@@ -22,7 +22,7 @@ import { useSidebarState } from "@/hooks/useSidebarState";
 import { useSkills } from "@/hooks/useSkills";
 import { StartupShell } from "@/components/startup/StartupShell";
 import { useNativeBootGate } from "@/hooks/useNativeBootGate";
-import { ThemeProvider, useTheme } from "@/hooks/useTheme";
+import { ThemeProvider, useTheme, readInitialTheme, applyDocumentTheme, syncNativeTitleBarWithRetry } from "@/hooks/useTheme";
 import { cn } from "@/lib/utils";
 import {
   clearSavedSecret,
@@ -348,13 +348,21 @@ export default function App() {
   const [state, setState] = useState<BootState>({ status: "loading" });
   const bootstrapSecretRef = useRef("");
 
+  useEffect(() => {
+    const theme = readInitialTheme();
+    applyDocumentTheme(theme);
+    return syncNativeTitleBarWithRetry(theme);
+  }, []);
+
   const refreshReadyClient = useCallback(
     async (client: NanobotClient, fallbackSurface: RuntimeSurface) => {
       const boot = await fetchBootstrap("", bootstrapSecretRef.current);
       const url = deriveWsUrl(boot.ws_path, boot.token, boot.ws_url);
-      const runtimeSurface = boot.runtime_surface
-        ? toRuntimeSurface(boot.runtime_surface)
-        : fallbackSurface;
+      const runtimeSurface = isLikelyElectronShell()
+        ? "native"
+        : boot.runtime_surface
+          ? toRuntimeSurface(boot.runtime_surface)
+          : fallbackSurface;
       const runtimeHost = createRuntimeHost(runtimeSurface, boot.runtime_capabilities);
       const tokenExpiresAt = bootstrapTokenExpiresAt(boot.expires_in);
       if (runtimeHost.socketFactory) {
@@ -392,7 +400,9 @@ export default function App() {
             if (cancelled) return;
             if (secret) saveSecret(secret);
             const url = deriveWsUrl(boot.ws_path, boot.token, boot.ws_url);
-            const runtimeSurface = toRuntimeSurface(boot.runtime_surface);
+            const runtimeSurface = isLikelyElectronShell()
+              ? "native"
+              : toRuntimeSurface(boot.runtime_surface);
             const runtimeHost = createRuntimeHost(runtimeSurface, boot.runtime_capabilities);
             const client = new NanobotClient({
               url,
@@ -620,7 +630,8 @@ function Shell({
   const hostSidebarPreviewCloseTimerRef = useRef<number | null>(null);
   const effectiveRuntimeSurface =
     settingsSnapshot?.surface ?? settingsSnapshot?.runtime_surface ?? runtimeSurface;
-  const showHostChrome = effectiveRuntimeSurface === "native";
+  const showHostChrome =
+    isLikelyElectronShell() || effectiveRuntimeSurface === "native";
   const showMainSidebar = view !== "settings";
 
   const navigate = useCallback(

@@ -169,8 +169,12 @@ vi.mock("@/hooks/useTheme", async () => {
     useTheme: () => ({
       theme: "light" as const,
       toggle: toggleThemeSpy,
+      setTheme: vi.fn(),
     }),
     useThemeValue: () => "light" as const,
+    readInitialTheme: () => "light" as const,
+    applyDocumentTheme: vi.fn(),
+    syncNativeTitleBarWithRetry: () => () => {},
   };
 });
 

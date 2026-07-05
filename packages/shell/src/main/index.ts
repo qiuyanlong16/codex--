@@ -2,7 +2,7 @@ import path from "node:path";
 import fs from "node:fs";
 import { pathToFileURL } from "node:url";
 import { randomBytes } from "node:crypto";
-import { app, BrowserWindow } from "electron";
+import { app, BrowserWindow, nativeTheme } from "electron";
 import { IPC, IPC_EVENTS } from "@byclaw-nanobot/shared";
 import type { NanobotReadyEvent, StartupFailedEvent, StartupPhaseEvent, StartupReadyEvent, TitleBarThemePayload } from "@byclaw-nanobot/shared";
 import { initMainLogger, mainLog } from "./core/logging/main-logger.js";
@@ -78,7 +78,8 @@ let trayService: TrayService | null = null;
 let isQuitting = false;
 let gatewayUrl: string | null = null;
 let startupInFlight: Promise<void> | null = null;
-let currentTitleBarTheme: TitleBarThemePayload["mode"] = "light";
+let currentTitleBarTheme: TitleBarThemePayload["mode"] =
+  nativeTheme.shouldUseDarkColors ? "dark" : "light";
 
 const TITLE_BAR_THEMES: Record<TitleBarThemePayload["mode"], { color: string; symbolColor: string; backgroundColor: string }> = {
   light: { color: "#f4f3f1", symbolColor: "#6b6b6b", backgroundColor: "#f4f3f1" },

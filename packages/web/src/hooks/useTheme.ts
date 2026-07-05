@@ -11,6 +11,8 @@ import { getElectronApi } from "@/lib/electron-host";
 
 type Theme = "light" | "dark";
 const STORAGE_KEY = "nanobot-webui.theme";
+const PRELOAD_POLL_MS = 50;
+const PRELOAD_POLL_MAX = 100;
 const ThemeContext = createContext<Theme>("light");
 
 function readStored(): Theme | null {
@@ -22,16 +24,50 @@ function readStored(): Theme | null {
   }
 }
 
-function applyTheme(theme: Theme): void {
+export function readInitialTheme(): Theme {
+  const stored = readStored();
+  if (stored) return stored;
+  if (typeof window !== "undefined" && window.matchMedia) {
+    return window.matchMedia("(prefers-color-scheme: dark)").matches
+      ? "dark"
+      : "light";
+  }
+  return "light";
+}
+
+export function applyDocumentTheme(theme: Theme): void {
   const root = document.documentElement;
   if (theme === "dark") root.classList.add("dark");
   else root.classList.remove("dark");
 }
 
-function syncNativeTitleBar(theme: Theme): void {
-  const api = getElectronApi();
-  if (!api?.app.setTitleBarTheme) return;
-  void api.app.setTitleBarTheme({ mode: theme });
+/** Keep retrying until preload exposes setTitleBarTheme (gateway reload race). */
+export function syncNativeTitleBarWithRetry(theme: Theme): () => void {
+  let cancelled = false;
+  let pollTimer: ReturnType<typeof setInterval> | undefined;
+
+  const sync = (): boolean => {
+    const api = getElectronApi();
+    if (!api?.app.setTitleBarTheme) return false;
+    void api.app.setTitleBarTheme({ mode: theme });
+    return true;
+  };
+
+  if (!sync()) {
+    let attempts = 0;
+    pollTimer = setInterval(() => {
+      if (cancelled) return;
+      if (sync() || ++attempts >= PRELOAD_POLL_MAX) {
+        if (pollTimer) clearInterval(pollTimer);
+        pollTimer = undefined;
+      }
+    }, PRELOAD_POLL_MS);
+  }
+
+  return () => {
+    cancelled = true;
+    if (pollTimer) clearInterval(pollTimer);
+  };
 }
 
 export function useTheme(): {
@@ -39,25 +75,17 @@ export function useTheme(): {
   toggle: () => void;
   setTheme: (t: Theme) => void;
 } {
-  const [theme, setThemeState] = useState<Theme>(() => {
-    const stored = readStored();
-    if (stored) return stored;
-    if (typeof window !== "undefined" && window.matchMedia) {
-      return window.matchMedia("(prefers-color-scheme: dark)").matches
-        ? "dark"
-        : "light";
-    }
-    return "light";
-  });
+  const [theme, setThemeState] = useState<Theme>(readInitialTheme);
 
   useEffect(() => {
-    applyTheme(theme);
-    syncNativeTitleBar(theme);
+    applyDocumentTheme(theme);
+    const stopTitleBarSync = syncNativeTitleBarWithRetry(theme);
     try {
       localStorage.setItem(STORAGE_KEY, theme);
     } catch {
       // ignore
     }
+    return stopTitleBarSync;
   }, [theme]);
 
   const setTheme = useCallback((t: Theme) => setThemeState(t), []);
