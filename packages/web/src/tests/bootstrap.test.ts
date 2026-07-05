@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { deriveWsUrl, fetchBootstrap } from "@/lib/bootstrap";
+import { deriveWsUrl, fetchBootstrap, isTransientBootstrapError } from "@/lib/bootstrap";
 
 describe("bootstrap helpers", () => {
   afterEach(() => {
@@ -49,5 +49,12 @@ describe("bootstrap helpers", () => {
     await vi.advanceTimersByTimeAsync(25);
 
     await pending;
+  });
+
+  it("treats gateway network failures as transient during shell startup", () => {
+    expect(isTransientBootstrapError("Failed to fetch")).toBe(true);
+    expect(isTransientBootstrapError("Request timed out after 5000ms")).toBe(true);
+    expect(isTransientBootstrapError("bootstrap failed: HTTP 503")).toBe(true);
+    expect(isTransientBootstrapError("bootstrap failed: HTTP 401")).toBe(false);
   });
 });

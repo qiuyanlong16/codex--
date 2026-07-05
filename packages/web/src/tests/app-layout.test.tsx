@@ -280,7 +280,7 @@ describe("App layout", () => {
     fireEvent.click(screen.getByRole("button", { name: "Connect" }));
 
     expect(await screen.findByText("Invalid password. Try again.")).toBeInTheDocument();
-    expect(fetchBootstrap).toHaveBeenLastCalledWith("", "wrong-password");
+    expect(fetchBootstrap).toHaveBeenLastCalledWith("", "wrong-password", undefined);
     expect(connectSpy).not.toHaveBeenCalled();
   });
 
