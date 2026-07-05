@@ -58,10 +58,6 @@
     "automations": "자동화",
     "skills": {
       "title": "스킬"
-    },
-    "themeToggle": {
-      "light": "Light mode",
-      "dark": "Dark mode"
     }
   },
   "settings": {
@@ -1054,11 +1050,5 @@
       "usePath": "Use Path",
       "absolutePathRequired": "Enter an absolute folder path on this machine."
     }
-  },
-  "windowControls": {
-    "minimize": "Minimize",
-    "maximize": "Maximize",
-    "restore": "Restore",
-    "close": "Close"
   }
 }

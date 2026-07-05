@@ -22,13 +22,6 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import {
-  findSitePackagesDir,
-  fixPortablePyvenvCfg,
-  isWindowsTarget,
-  resolveTarExe,
-  sitePackagesTarPrefix,
-} from "./lib/platform.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const VENV_DIR = path.join(ROOT, "packages", "shell", "resources", "python-venv");
@@ -39,8 +32,16 @@ const MANIFEST_PATH = path.join(RESOURCES_DIR, "python-venv_manifest.json");
 // Max ~80 MB per shard to keep extraction fast
 const TARGET_SHARD_SIZE = 80 * 1024 * 1024;
 
-function resolveLocalTarExe() {
-  return resolveTarExe(spawnSync);
+function resolveTarExe() {
+  const candidates = [
+    path.join(process.env.WINDIR || "C:\\Windows", "System32", "tar.exe"),
+    "tar",
+  ];
+  for (const c of candidates) {
+    const probe = spawnSync(c, ["--version"], { encoding: "utf8", windowsHide: true });
+    if (probe.status === 0) return c;
+  }
+  return null;
 }
 
 function getDirSize(dir) {
@@ -377,24 +378,28 @@ function copyWebuiDistToVenv() {
     process.exit(1);
   }
 
-  const sitePackages = findSitePackagesDir(VENV_DIR);
-  if (sitePackages && fs.existsSync(path.join(sitePackages, "nanobot"))) {
-    const nanobotWebDist = path.join(sitePackages, "nanobot", "web", "dist");
-    fs.mkdirSync(path.dirname(nanobotWebDist), { recursive: true });
-    fs.rmSync(nanobotWebDist, { recursive: true, force: true });
-    copyDirSync(WEBUI_DIST, nanobotWebDist);
-    console.log(`[pack-venv] webui dist → ${nanobotWebDist}`);
-    return nanobotWebDist;
+  // Find nanobot/web/dist inside the venv
+  const sitePackages = path.join(VENV_DIR, "Lib", "site-packages");
+  const nanobotWebDist = path.join(sitePackages, "nanobot", "web", "dist");
+
+  if (!fs.existsSync(path.join(sitePackages, "nanobot"))) {
+    // Might be an editable install — check the vendor path
+    console.log("[pack-venv] editable install detected, checking vendor...");
+    // For editable installs, nanobot points to vendor/nanobot
+    // We need to create the dist dir in vendor
+    const vendorDist = path.join(ROOT, "vendor", "nanobot", "nanobot", "web", "dist");
+    fs.mkdirSync(path.dirname(vendorDist), { recursive: true });
+    fs.rmSync(vendorDist, { recursive: true, force: true });
+    copyDirSync(WEBUI_DIST, vendorDist);
+    console.log(`[pack-venv] webui dist → ${vendorDist}`);
+    return vendorDist;
   }
 
-  // Editable install — copy into vendor tree
-  console.log("[pack-venv] editable install detected, checking vendor...");
-  const vendorDist = path.join(ROOT, "vendor", "nanobot", "nanobot", "web", "dist");
-  fs.mkdirSync(path.dirname(vendorDist), { recursive: true });
-  fs.rmSync(vendorDist, { recursive: true, force: true });
-  copyDirSync(WEBUI_DIST, vendorDist);
-  console.log(`[pack-venv] webui dist → ${vendorDist}`);
-  return vendorDist;
+  fs.mkdirSync(path.dirname(nanobotWebDist), { recursive: true });
+  fs.rmSync(nanobotWebDist, { recursive: true, force: true });
+  copyDirSync(WEBUI_DIST, nanobotWebDist);
+  console.log(`[pack-venv] webui dist → ${nanobotWebDist}`);
+  return nanobotWebDist;
 }
 
 function copyDirSync(src, dest) {
@@ -412,10 +417,7 @@ function copyDirSync(src, dest) {
 // ---------------------------------------------------------------------------
 
 function planShards() {
-  const sitePackages = findSitePackagesDir(VENV_DIR);
-  if (!sitePackages) {
-    throw new Error("[pack-venv] site-packages not found in venv");
-  }
+  const sitePackages = path.join(VENV_DIR, "Lib", "site-packages");
   const sitePackagesDirs = fs.readdirSync(sitePackages, { withFileTypes: true })
     .filter(e => e.isDirectory())
     .map(e => ({
@@ -459,7 +461,6 @@ function planShards() {
 
 function createTarShards(shards, tarExe) {
   const shardFiles = [];
-  const sitePackagesPrefix = sitePackagesTarPrefix(VENV_DIR);
 
   for (let i = 0; i < shards.length; i++) {
     const shardFile = path.join(RESOURCES_DIR, `python-venv_${i}.tar`);
@@ -467,10 +468,16 @@ function createTarShards(shards, tarExe) {
 
     console.log(`[pack-venv] shard ${i}: ${shard.dirs.length} dirs, ${(shard.size / 1024 / 1024).toFixed(1)} MB`);
 
+    // We need to tar the entire venv structure but only include specific site-packages dirs
+    // Strategy: create a temp staging dir with symlinks/copies, then tar it
+    // Simpler: tar the whole venv for shard 0 (includes Scripts/, python.exe etc.),
+    //          then tar only specific site-packages dirs for remaining shards
+
     if (i === 0) {
+      // Shard 0: everything EXCEPT site-packages subdirs assigned to other shards
       const excludeDirs = shards.slice(1).flatMap(s => s.dirs);
       const excludeArgs = excludeDirs.flatMap(d => [
-        "--exclude", `${sitePackagesPrefix}/${d}`,
+        "--exclude", `python-venv/Lib/site-packages/${d}`,
       ]);
 
       const args = [
@@ -482,28 +489,26 @@ function createTarShards(shards, tarExe) {
 
       const result = spawnSync(tarExe, args, {
         encoding: "utf8",
-        windowsHide: process.platform === "win32",
+        windowsHide: true,
         timeout: 300_000,
       });
       if (result.status !== 0) {
         throw new Error(`tar shard 0 failed: ${result.stderr}`);
       }
     } else {
+      // Shard N: only the assigned site-packages dirs
+      // Create a tar with just these dirs under the venv path
       const tempDir = path.join(RESOURCES_DIR, `.tar-staging-${i}`);
-      const stagingSitePkg = path.join(tempDir, ...sitePackagesPrefix.split("/"));
+      const stagingSitePkg = path.join(tempDir, "python-venv", "Lib", "site-packages");
       fs.mkdirSync(stagingSitePkg, { recursive: true });
 
-      const sitePackages = findSitePackagesDir(VENV_DIR);
       for (const dirName of shard.dirs) {
-        const src = path.join(sitePackages, dirName);
+        const src = path.join(VENV_DIR, "Lib", "site-packages", dirName);
         const dest = path.join(stagingSitePkg, dirName);
-        if (isWindowsTarget()) {
-          try {
-            fs.symlinkSync(src, dest, "junction");
-          } catch {
-            copyDirSync(src, dest);
-          }
-        } else {
+        // Use junction on Windows for speed
+        try {
+          fs.symlinkSync(src, dest, "junction");
+        } catch {
           copyDirSync(src, dest);
         }
       }
@@ -516,10 +521,11 @@ function createTarShards(shards, tarExe) {
 
       const result = spawnSync(tarExe, args, {
         encoding: "utf8",
-        windowsHide: process.platform === "win32",
+        windowsHide: true,
         timeout: 300_000,
       });
 
+      // Clean up staging
       fs.rmSync(tempDir, { recursive: true, force: true });
 
       if (result.status !== 0) {
@@ -545,22 +551,24 @@ if (!fs.existsSync(VENV_DIR)) {
   process.exit(1);
 }
 
-const tarExe = resolveLocalTarExe();
+const tarExe = resolveTarExe();
 if (!tarExe) {
-  console.error("[pack-venv] ERROR: system tar not found.");
+  console.error("[pack-venv] ERROR: tar.exe not found. Windows 10+ includes tar.exe.");
   process.exit(1);
 }
 
 console.log(`[pack-venv] venv: ${VENV_DIR} (${(getDirSize(VENV_DIR) / 1024 / 1024).toFixed(1)} MB)`);
 console.log(`[pack-venv] tar:  ${tarExe}`);
-console.log(`[pack-venv] target platform: ${process.env.BYCLAW_TARGET_PLATFORM ?? process.platform}`);
 
-if (isWindowsTarget()) {
-  makeVenvSelfContained();
-  replaceExeLaunchersWithCmd();
-} else {
-  fixPortablePyvenvCfg(VENV_DIR);
-}
+// Step 0: Make venv self-contained by copying base Python runtime into it
+// Without this, pyvenv.cfg points to the dev machine's Python (e.g. Lenovo ByRuntime)
+// which doesn't exist on the target machine, causing exit code 103.
+makeVenvSelfContained();
+
+// Step 0a: Replace pip-generated .exe console_script launchers with portable .cmd
+// The .exe launchers have the build machine's Python path hardcoded inside them.
+// .cmd wrappers use %~dp0python.exe (relative path) so they work on any machine.
+replaceExeLaunchersWithCmd();
 
 // Step 1: Copy webui dist
 copyWebuiDistToVenv();

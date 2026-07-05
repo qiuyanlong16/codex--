@@ -1,6 +1,6 @@
 {
   "name": "@byclaw-nanobot/shell",
-  "productName": "codex--",
+  "productName": "by-claw-nanobot",
   "version": "0.1.0",
   "private": true,
   "main": "dist/main/index.js",

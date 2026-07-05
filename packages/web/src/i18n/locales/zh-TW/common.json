@@ -50,10 +50,6 @@
     "noSearchResults": "沒有符合的對話。",
     "recent": "最近對話",
     "settings": "設定",
-    "themeToggle": {
-      "light": "淺色模式",
-      "dark": "深色模式"
-    },
     "language": {
       "label": "語言",
       "ariaLabel": "切換語言"
@@ -1054,11 +1050,5 @@
       "usePath": "使用路徑",
       "absolutePathRequired": "請輸入這台機器上的絕對資料夾路徑。"
     }
-  },
-  "windowControls": {
-    "minimize": "最小化",
-    "maximize": "最大化",
-    "restore": "向下還原",
-    "close": "關閉"
   }
 }

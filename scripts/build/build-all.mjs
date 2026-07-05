@@ -89,4 +89,4 @@ if (process.env.BYCLAW_PACK_SKIP_BUNDLE !== "1") {
 }
 
 console.log("\n✅ Full build complete!");
-console.log("Installer: dist-release/codex---Setup-*.exe / codex---*.dmg");
+console.log("Installer: dist-release/by-claw-nanobot-Setup-*.exe");

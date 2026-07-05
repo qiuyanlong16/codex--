@@ -2,10 +2,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { spawn } from "node:child_process";
-import { app } from "electron";
+import { spawn, spawnSync } from "node:child_process";
 import { resolveResourcesPath, getByclawHomeDir } from "../core/platform-paths.js";
-import { venvPythonPath, resolveSystemTarCandidates } from "../core/venv-paths.js";
 import { mainLog } from "../core/logging/main-logger.js";
 
 export type NanobotBundleLayout = "packaged" | "dev-checkout";
@@ -19,20 +17,6 @@ export type NanobotBundleRef = {
 
 const DEV_ROOT_ENV = "BYCLAW_NANOBOT_DEV_ROOT";
 const DEV_PYTHON_ENV = "BYCLAW_NANOBOT_DEV_PYTHON";
-
-function findSitePackagesInVenv(venvRoot: string): string | null {
-  const winPath = path.join(venvRoot, "Lib", "site-packages");
-  if (fs.existsSync(winPath)) return winPath;
-  const libDir = path.join(venvRoot, "lib");
-  if (!fs.existsSync(libDir)) return null;
-  for (const entry of fs.readdirSync(libDir)) {
-    if (entry.startsWith("python")) {
-      const candidate = path.join(libDir, entry, "site-packages");
-      if (fs.existsSync(candidate)) return candidate;
-    }
-  }
-  return null;
-}
 
 function pythonExecutableInDir(dir: string): string | null {
   // Check both the directory root and the venv Scripts/ bin/ subdirectory.
@@ -90,10 +74,7 @@ function resolvePackagedBundle(root: string): NanobotBundleRef | null {
   const pythonExe = pythonExecutableInDir(root);
   if (!pythonExe) return null;
   // Check for nanobot module
-  const sitePackages = findSitePackagesInVenv(root);
-  const nanobotModulePath = sitePackages
-    ? path.join(sitePackages, "nanobot")
-    : path.join(root, "Lib", "site-packages", "nanobot");
+  const nanobotModulePath = path.join(root, "Lib", "site-packages", "nanobot");
   const hasNanobot = fs.existsSync(nanobotModulePath) || fs.existsSync(path.join(root, "nanobot"));
   return {
     root,
@@ -137,7 +118,7 @@ export async function ensureVenvExtracted(): Promise<void> {
   const stateDir = getByclawHomeDir();
   const fallbackResources = path.join(stateDir, "resources");
   const fallbackVenv = path.join(fallbackResources, "python-venv");
-  const fallbackPython = venvPythonPath(fallbackVenv);
+  const fallbackPython = path.join(fallbackVenv, "Scripts", "python.exe");
 
   // Already extracted?
   if (fs.existsSync(fallbackPython)) return;
@@ -172,7 +153,7 @@ export async function ensureVenvExtracted(): Promise<void> {
     // Extract each shard using system tar.exe (async).
     const tarExe = resolveSystemTarExe();
     if (!tarExe) {
-      mainLog.error("nanobot", "system tar not found, cannot extract venv");
+      mainLog.error("nanobot", "tar.exe not found on system, cannot extract venv");
       return;
     }
 
@@ -205,11 +186,11 @@ export async function ensureVenvExtracted(): Promise<void> {
       // List directory contents to help diagnose what went wrong
       let dirContents: string[] = [];
       try { dirContents = fs.readdirSync(fallbackVenv); } catch { /* ignore */ }
-      mainLog.error("nanobot", "venv extraction done but python interpreter missing", {
+      mainLog.error("nanobot", "venv extraction done but python.exe missing", {
         fallbackVenv,
         dirContents,
       });
-      throw new Error(`venv_extract_incomplete: python not found at ${fallbackPython}, dir contents: ${dirContents.join(", ") || "(empty)"}`);
+      throw new Error(`venv_extract_incomplete: python.exe not found at ${fallbackPython}, dir contents: ${dirContents.join(", ") || "(empty)"}`);
     }
   } catch (err) {
     mainLog.error("nanobot", "venv extraction failed", {
@@ -222,7 +203,7 @@ export async function ensureVenvExtracted(): Promise<void> {
 function runTarAsync(tarExe: string, tarFile: string, cwd: string): Promise<void> {
   return new Promise((resolve, reject) => {
     const child = spawn(tarExe, ["-xf", tarFile, "-C", cwd], {
-      windowsHide: process.platform === "win32",
+      windowsHide: true,
     });
     let stderr = "";
     child.stderr?.on("data", (data) => { stderr += data.toString(); });
@@ -242,14 +223,16 @@ function runTarAsync(tarExe: string, tarFile: string, cwd: string): Promise<void
 
 /** Find a working tar.exe on the system (async). */
 async function resolveSystemTarExe(): Promise<string | null> {
-  for (const candidate of resolveSystemTarCandidates()) {
+  const candidates = [
+    path.join(process.env.WINDIR || "C:\\Windows", "System32", "tar.exe"),
+    "tar.exe",
+  ];
+  for (const c of candidates) {
     try {
-      if (candidate !== "tar" && candidate !== "tar.exe" && !fs.existsSync(candidate)) continue;
-      const version = await runCommandAsync(candidate, ["--version"]);
-      if (version !== null) return candidate;
-    } catch {
-      /* try next */
-    }
+      if (c !== "tar.exe" && !fs.existsSync(c)) continue;
+      const version = await runCommandAsync(c, ["--version"]);
+      if (version !== null) return c;
+    } catch { /* try next */ }
   }
   return null;
 }
@@ -257,7 +240,7 @@ async function resolveSystemTarExe(): Promise<string | null> {
 /** Run a command asynchronously and return stdout, or null on failure. */
 function runCommandAsync(cmd: string, args: string[]): Promise<string | null> {
   return new Promise((resolve) => {
-    const child = spawn(cmd, args, { windowsHide: process.platform === "win32" });
+    const child = spawn(cmd, args, { windowsHide: true });
     let stdout = "";
     child.stdout?.on("data", (data) => { stdout += data.toString(); });
     child.on("close", (code) => {
@@ -271,8 +254,7 @@ function runCommandAsync(cmd: string, args: string[]): Promise<string | null> {
 export async function resolveNanobotBundle(): Promise<NanobotBundleRef | null> {
   // Only attempt venv extraction in dev mode (installer handles it in production).
   // In production, if venv is missing, we return missing — no startup extraction.
-  const shouldExtract = process.env.NODE_ENV === "development" || app.isPackaged;
-  if (shouldExtract) {
+  if (process.env.NODE_ENV === "development") {
     await ensureVenvExtracted();
   }
 
