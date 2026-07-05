@@ -125,6 +125,7 @@ run("node", ["scripts/build/prefetch-electron.mjs"], {
 });
 
 run("node", ["scripts/build/prepare-electron-native-deps.mjs"]);
+run("node", ["scripts/build/ensure-brand-icons.mjs"]);
 
 const builderArgs = electronBuilderArgs();
 console.log(`[bundle:cached] electron-builder ${builderArgs.join(" ")} (platform=${targetPlatform})`);

@@ -215,6 +215,10 @@ const webPkg = {
   },
   devDependencies: {
     ...vendorPkg.devDependencies,
+    "@types/mdast": "^4.0.4",
+    "micromark-util-types": "^2.0.2",
+    "unified": "^11.0.5",
+    "micromark-extension-math": "^3.1.0",
   },
 };
 

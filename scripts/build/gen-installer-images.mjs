@@ -12,58 +12,11 @@
 import { writeFileSync, mkdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { createBMP } from "./lib/bmp.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const root = join(__dirname, "..", "..");
 const outDir = join(root, "resources", "installer");
-
-/**
- * 创建 24-bit 无压缩 BMP Buffer。
- * pixelFn(x, y, w, h) 返回 [r, g, b]（0-255）。
- * BMP 行顺序为 bottom-up。
- */
-function createBMP(width, height, pixelFn) {
-  const bytesPerPixel = 3;
-  const rowBytes = width * bytesPerPixel;
-  const paddedRowBytes = Math.ceil(rowBytes / 4) * 4;
-  const pixelDataSize = paddedRowBytes * height;
-  const fileSize = 14 + 40 + pixelDataSize;
-
-  const buf = Buffer.alloc(fileSize, 0);
-
-  // File header (14 bytes)
-  buf.write("BM", 0, "ascii");
-  buf.writeUInt32LE(fileSize, 2);
-  buf.writeUInt32LE(0, 6);
-  buf.writeUInt32LE(54, 10); // pixel data offset = 14 + 40
-
-  // DIB header BITMAPINFOHEADER (40 bytes)
-  buf.writeUInt32LE(40, 14);
-  buf.writeInt32LE(width, 18);
-  buf.writeInt32LE(height, 22); // positive = bottom-up storage
-  buf.writeUInt16LE(1, 26); // color planes
-  buf.writeUInt16LE(24, 28); // bits per pixel
-  buf.writeUInt32LE(0, 30); // compression = BI_RGB
-  buf.writeUInt32LE(pixelDataSize, 34);
-  buf.writeInt32LE(2835, 38); // ~72 DPI X
-  buf.writeInt32LE(2835, 42); // ~72 DPI Y
-  buf.writeUInt32LE(0, 46);
-  buf.writeUInt32LE(0, 50);
-
-  // Pixel data
-  let pos = 54;
-  for (let y = height - 1; y >= 0; y--) {
-    for (let x = 0; x < width; x++) {
-      const [r, g, b] = pixelFn(x, y, width, height);
-      buf[pos++] = b & 0xff; // BGR order
-      buf[pos++] = g & 0xff;
-      buf[pos++] = r & 0xff;
-    }
-    for (let p = rowBytes; p < paddedRowBytes; p++) buf[pos++] = 0;
-  }
-
-  return buf;
-}
 
 /** 深色渐变背景：顶部深空蓝 → 底部更深，带细微光晕 */
 function sidebarPixel(x, y, w, h) {
