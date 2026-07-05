@@ -60,7 +60,7 @@ if (process.env.BYCLAW_PACK_SKIP_CLONE !== "1") {
 node("scripts/build/sync-webui.mjs");
 
 // sync-webui rewrites packages/web/package.json with vendor React deps
-pnpm("install");
+pnpm("install", "--no-frozen-lockfile");
 
 // ── 3. Build web UI ──────────────────────────────────────────────
 pnpm("build:web");
