@@ -1612,7 +1612,7 @@ function Shell({
         <div
           className={cn(
             "relative flex h-full w-full overflow-hidden",
-            showHostChrome && "box-border pt-11",
+            showHostTopChrome && "box-border pt-11",
           )}
         >
           {/* Host sidebar: in normal flow, so the thread area width stays honest. */}
