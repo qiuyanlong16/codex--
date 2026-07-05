@@ -17,9 +17,9 @@ export function useElectronGatewayUrl(): string | null {
       setGatewayUrl(`http://${host}:${port}`);
     };
 
-    const attach = () => {
+    const attach = (): (() => void) | undefined => {
       const api = getElectronApi();
-      if (!api) return false;
+      if (!api) return undefined;
 
       void api.startup.getState().then((snapshot) => {
         const ready = snapshot.readyEvent;
@@ -47,18 +47,21 @@ export function useElectronGatewayUrl(): string | null {
       };
     };
 
-    let cleanup = attach();
-    if (cleanup) return () => {
-      cancelled = true;
-      cleanup?.();
-    };
+    let cleanup: (() => void) | undefined = attach();
+    if (cleanup) {
+      const dispose = cleanup;
+      return () => {
+        cancelled = true;
+        dispose();
+      };
+    }
 
     let attempts = 0;
     const poll = window.setInterval(() => {
       if (cancelled) return;
       attempts += 1;
       cleanup?.();
-      cleanup = attach() ?? undefined;
+      cleanup = attach();
       if (cleanup || attempts >= 100) {
         window.clearInterval(poll);
       }

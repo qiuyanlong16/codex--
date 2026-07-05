@@ -3,7 +3,9 @@ import { useTranslation } from "react-i18next";
 import { AlertCircle, FolderOpen, RotateCcw } from "lucide-react";
 import type { StartupFailedEvent, StartupPhaseEvent } from "@byclaw-nanobot/shared";
 import { Button } from "@/components/ui/button";
+import { applyDocumentTheme, readInitialTheme, type Theme } from "@/hooks/useTheme";
 import { getElectronApi } from "@/lib/electron-host";
+import { HostBrandMark } from "@/components/host/HostBrandMark";
 import { cn } from "@/lib/utils";
 
 const PHASE_ORDER: StartupPhaseEvent["phase"][] = [
@@ -25,11 +27,72 @@ type StartupShellProps = {
   onRetry?: () => void;
 };
 
+const SHELL_STYLES = {
+  dark: {
+    shell: "bg-[#0b0d12] text-[#e8ecf4]",
+    mesh:
+      "radial-gradient(ellipse 90% 55% at 50% -15%, rgba(0, 212, 255, 0.16), transparent 58%), radial-gradient(ellipse 55% 45% at 100% 100%, rgba(0, 96, 160, 0.1), transparent 52%), linear-gradient(180deg, #0d1018 0%, #0b0d12 45%, #090b10 100%)",
+    brand: "text-cyan-300/55",
+    title: "text-[#f3f6fb]",
+    hint: "text-[#8b95a8]",
+    iconRing: "ring-cyan-400/20 shadow-[0_0_56px_rgba(0,212,255,0.24)]",
+    stepActiveBg: "bg-cyan-500/10 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]",
+    stepDone: "bg-cyan-500/20 text-cyan-300",
+    stepActive: "bg-cyan-400/25 text-cyan-100 ring-1 ring-cyan-400/40",
+    stepIdle: "bg-white/5 text-[#6b7280]",
+    stepActiveText: "font-medium text-cyan-100",
+    stepIdleText: "text-[#9ca3af]",
+    stepPendingOpacity: 0.32,
+    pulse: "text-cyan-400/80",
+    progressTrack: "bg-white/8",
+    progressBar: "from-cyan-600/70 via-cyan-300 to-cyan-500/80",
+    errorBox:
+      "border-red-500/20 bg-gradient-to-b from-red-950/35 to-red-950/15 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]",
+    errorTitle: "text-red-100",
+    errorBody: "text-red-300/90",
+    errorMeta: "text-red-300/65",
+    retryBtn: "border-red-400/30 bg-transparent text-red-100 hover:bg-red-900/40",
+    logsBtn: "text-red-200/90 hover:bg-red-900/30",
+  },
+  light: {
+    shell: "bg-[#f8f9fb] text-slate-950",
+    mesh:
+      "radial-gradient(ellipse 88% 52% at 50% -12%, rgba(14, 165, 233, 0.07), transparent 58%), radial-gradient(ellipse 48% 40% at 100% 100%, rgba(2, 132, 199, 0.05), transparent 54%), linear-gradient(180deg, #ffffff 0%, #f8f9fb 50%, #f1f3f6 100%)",
+    brand: "text-sky-700 font-semibold",
+    title: "text-slate-950",
+    hint: "text-slate-600",
+    iconRing: "ring-sky-500/30 shadow-[0_10px_36px_rgba(14,165,233,0.14)]",
+    stepActiveBg: "bg-white shadow-[0_1px_2px_rgba(15,23,42,0.06),inset_0_1px_0_rgba(255,255,255,1)] ring-1 ring-sky-200/80",
+    stepDone: "bg-sky-100 text-sky-800 ring-1 ring-sky-200/60",
+    stepActive: "bg-sky-600 text-white ring-1 ring-sky-500/40 shadow-sm",
+    stepIdle: "bg-slate-200/95 text-slate-600",
+    stepActiveText: "font-semibold text-slate-900",
+    stepIdleText: "text-slate-600",
+    stepPendingOpacity: 0.58,
+    pulse: "text-sky-600",
+    progressTrack: "bg-slate-300/70",
+    progressBar: "from-sky-600 via-sky-500 to-cyan-500",
+    errorBox:
+      "border-red-200 bg-gradient-to-b from-red-50 to-white shadow-[inset_0_1px_0_rgba(255,255,255,0.9)]",
+    errorTitle: "text-red-900",
+    errorBody: "text-red-700/90",
+    errorMeta: "text-red-600/70",
+    retryBtn: "border-red-300 bg-white text-red-800 hover:bg-red-50",
+    logsBtn: "text-red-700 hover:bg-red-50",
+  },
+} as const;
+
 export function StartupShell({ phase, failed, onRetry }: StartupShellProps) {
   const { t } = useTranslation();
   const tx = (key: string, fallback: string) => t(key, { defaultValue: fallback });
+  const [theme] = useState<Theme>(readInitialTheme);
+  const styles = SHELL_STYLES[theme];
   const [pulse, setPulse] = useState(0);
   const [revealed, setRevealed] = useState(false);
+
+  useEffect(() => {
+    applyDocumentTheme(theme);
+  }, [theme]);
 
   useEffect(() => {
     const timer = window.setInterval(() => setPulse((v) => v + 1), 2400);
@@ -60,15 +123,17 @@ export function StartupShell({ phase, failed, onRetry }: StartupShellProps) {
   };
 
   return (
-    <div className="relative flex h-full w-full flex-col overflow-hidden bg-[#0b0d12] text-[#e8ecf4]">
+    <div className={cn("relative flex h-full w-full flex-col overflow-hidden", styles.shell)}>
       <div className="host-drag-region absolute inset-x-0 top-0 z-50 h-11" aria-hidden />
+      <HostBrandMark
+        className="absolute left-4 top-0 z-[51] h-11 max-w-[92px] items-center"
+        surface="startup"
+        theme={theme}
+      />
 
       <div
         className="pointer-events-none absolute inset-0 opacity-80"
-        style={{
-          background:
-            "radial-gradient(ellipse 90% 55% at 50% -15%, rgba(0, 212, 255, 0.16), transparent 58%), radial-gradient(ellipse 55% 45% at 100% 100%, rgba(0, 96, 160, 0.1), transparent 52%), linear-gradient(180deg, #0d1018 0%, #0b0d12 45%, #090b10 100%)",
-        }}
+        style={{ background: styles.mesh }}
       />
       <div
         className="pointer-events-none absolute inset-0 opacity-[0.04]"
@@ -85,7 +150,10 @@ export function StartupShell({ phase, failed, onRetry }: StartupShellProps) {
         )}
       >
         <div
-          className="mb-8 flex h-[92px] w-[92px] items-center justify-center rounded-[24px] ring-1 ring-cyan-400/20 shadow-[0_0_56px_rgba(0,212,255,0.24)]"
+          className={cn(
+            "mb-8 flex h-[92px] w-[92px] items-center justify-center rounded-[24px] ring-1",
+            styles.iconRing,
+          )}
           style={{
             animation: failed ? undefined : `startup-breathe 3.2s ease-in-out infinite`,
           }}
@@ -98,15 +166,23 @@ export function StartupShell({ phase, failed, onRetry }: StartupShellProps) {
           />
         </div>
 
-        <p className="mb-3 text-[11px] font-medium uppercase tracking-[0.28em] text-cyan-300/55">
-          codex--
+        <p className={cn("mb-3 text-[11px] uppercase tracking-[0.26em]", styles.brand)}>
+          <span className="font-semibold">codex</span>
+          <span
+            className={cn(
+              "font-medium",
+              theme === "light" ? "text-sky-600" : "text-cyan-400/85",
+            )}
+          >
+            --
+          </span>
         </p>
-        <h1 className="mb-2 text-[24px] font-medium tracking-[-0.03em] text-[#f3f6fb]">
+        <h1 className={cn("mb-2 text-[24px] font-semibold tracking-[-0.03em]", styles.title)}>
           {failed
             ? tx("startup.failed.title", "Could not start codex--")
             : tx("startup.booting.title", "Starting codex--")}
         </h1>
-        <p className="mb-10 max-w-md text-center text-[13px] leading-relaxed text-[#8b95a8]">
+        <p className={cn("mb-10 max-w-md text-center text-[13.5px] leading-[1.65] font-normal", styles.hint)}>
           {failed
             ? isGatewayError
               ? tx(
@@ -118,20 +194,20 @@ export function StartupShell({ phase, failed, onRetry }: StartupShellProps) {
         </p>
 
         {failed ? (
-          <div className="w-full max-w-md rounded-2xl border border-red-500/20 bg-gradient-to-b from-red-950/35 to-red-950/15 px-4 py-3.5 text-left shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
+          <div className={cn("w-full max-w-md rounded-2xl border px-4 py-3.5 text-left", styles.errorBox)}>
             <div className="flex items-start gap-3">
-              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-red-400" aria-hidden />
+              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-red-500" aria-hidden />
               <div className="min-w-0">
-                <p className="text-[13px] font-medium text-red-100">
+                <p className={cn("text-[13px] font-medium", styles.errorTitle)}>
                   {isGatewayError
                     ? tx("startup.failed.gatewayError", "Connection error")
                     : tx("startup.failed.error", "Startup error")}
                 </p>
-                <p className="mt-1.5 break-all font-mono text-[12px] leading-relaxed text-red-300/90">
+                <p className={cn("mt-1.5 break-all font-mono text-[12px] leading-relaxed", styles.errorBody)}>
                   {failed.message || failed.code}
                 </p>
                 {failed.logDir ? (
-                  <p className="mt-2 text-[11px] text-red-300/65">
+                  <p className={cn("mt-2 text-[11px]", styles.errorMeta)}>
                     {tx("startup.failed.logDir", "Logs")}: {failed.logDir}
                   </p>
                 ) : null}
@@ -143,7 +219,7 @@ export function StartupShell({ phase, failed, onRetry }: StartupShellProps) {
                   type="button"
                   size="sm"
                   variant="outline"
-                  className="host-no-drag rounded-full border-red-400/30 bg-transparent text-red-100 hover:bg-red-900/40"
+                  className={cn("host-no-drag rounded-full", styles.retryBtn)}
                   onClick={onRetry}
                 >
                   <RotateCcw className="mr-1.5 h-3.5 w-3.5" aria-hidden />
@@ -155,7 +231,7 @@ export function StartupShell({ phase, failed, onRetry }: StartupShellProps) {
                   type="button"
                   size="sm"
                   variant="ghost"
-                  className="host-no-drag rounded-full text-red-200/90 hover:bg-red-900/30"
+                  className={cn("host-no-drag rounded-full", styles.logsBtn)}
                   onClick={openLogs}
                 >
                   <FolderOpen className="mr-1.5 h-3.5 w-3.5" aria-hidden />
@@ -174,20 +250,20 @@ export function StartupShell({ phase, failed, onRetry }: StartupShellProps) {
                   key={step.id}
                   className={cn(
                     "flex items-center gap-3 rounded-xl px-3 py-2.5 transition-all duration-500",
-                    active && "bg-cyan-500/10 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]",
+                    active && styles.stepActiveBg,
                     done && "opacity-50",
                   )}
                   style={{
                     transitionDelay: `${index * 60}ms`,
-                    opacity: done ? 0.5 : active ? 1 : 0.32,
+                    opacity: done ? 0.55 : active ? 1 : styles.stepPendingOpacity,
                   }}
                 >
                   <span
                     className={cn(
                       "flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold transition-colors",
-                      done && "bg-cyan-500/20 text-cyan-300",
-                      active && "bg-cyan-400/25 text-cyan-100 ring-1 ring-cyan-400/40",
-                      !done && !active && "bg-white/5 text-[#6b7280]",
+                      done && styles.stepDone,
+                      active && styles.stepActive,
+                      !done && !active && styles.stepIdle,
                     )}
                   >
                     {done ? "✓" : index + 1}
@@ -195,14 +271,14 @@ export function StartupShell({ phase, failed, onRetry }: StartupShellProps) {
                   <span
                     className={cn(
                       "text-[13px]",
-                      active ? "font-medium text-cyan-100" : "text-[#9ca3af]",
+                      active ? styles.stepActiveText : styles.stepIdleText,
                     )}
                   >
                     {step.label}
                     {active && !failed ? (
                       <span
                         key={pulse}
-                        className="ml-1 inline-block animate-pulse text-cyan-400/80"
+                        className={cn("ml-1 inline-block animate-pulse", styles.pulse)}
                       >
                         …
                       </span>
@@ -216,9 +292,12 @@ export function StartupShell({ phase, failed, onRetry }: StartupShellProps) {
       </div>
 
       <div className="relative z-10 px-8 pb-6">
-        <div className="mx-auto h-1 max-w-lg overflow-hidden rounded-full bg-white/8">
+        <div className={cn("mx-auto h-1 max-w-lg overflow-hidden rounded-full", styles.progressTrack)}>
           <div
-            className="h-full rounded-full bg-gradient-to-r from-cyan-600/70 via-cyan-300 to-cyan-500/80 transition-all duration-700 ease-out"
+            className={cn(
+              "h-full rounded-full bg-gradient-to-r transition-all duration-700 ease-out",
+              styles.progressBar,
+            )}
             style={{
               width: failed ? "100%" : `${Math.min(100, ((activeIndex + 1) / steps.length) * 100)}%`,
               opacity: failed ? 0.35 : 1,

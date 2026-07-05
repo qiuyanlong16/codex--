@@ -155,14 +155,15 @@ async function emitStartupEvent(
 }
 
 async function createWindow(): Promise<BrowserWindow> {
+  const useDark = nativeTheme.shouldUseDarkColors;
   const initialPalette = {
-    color: "#0b0d12",
-    symbolColor: "#e5e5e5",
-    backgroundColor: "#0b0d12",
+    color: useDark ? "#0b0d12" : "#f8f9fb",
+    symbolColor: useDark ? "#e5e5e5" : "#6b6b6b",
+    backgroundColor: useDark ? "#0b0d12" : "#f8f9fb",
   };
   const win = new BrowserWindow({
-    width: 1200,
-    height: 760,
+    width: 1080,
+    height: 680,
     show: false,
     backgroundColor: initialPalette.backgroundColor,
     titleBarStyle: process.platform === "win32" ? "hidden" : "default",

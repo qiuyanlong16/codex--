@@ -23,7 +23,7 @@ import { useSkills } from "@/hooks/useSkills";
 import { StartupShell } from "@/components/startup/StartupShell";
 import { useNativeBootGate } from "@/hooks/useNativeBootGate";
 import { useElectronGatewayUrl } from "@/hooks/useElectronGateway";
-import { ThemeProvider, useTheme, readInitialTheme, applyDocumentTheme, syncNativeTitleBarWithRetry } from "@/hooks/useTheme";
+import { HostBrandMark } from "@/components/host/HostBrandMark";
 import { cn } from "@/lib/utils";
 import {
   clearSavedSecret,
@@ -50,7 +50,14 @@ import { Input } from "@/components/ui/input";
 import { fetchSettings, fetchWorkspaces } from "@/lib/api";
 import { getElectronApi, isLikelyElectronShell } from "@/lib/electron-host";
 import { resolveBootstrapBaseUrl } from "@/lib/gateway-url";
-import { STARTUP_TITLE_BAR, titleBarPayloadForTheme } from "@/lib/title-bar";
+import { titleBarPayloadForStartup, titleBarPayloadForTheme } from "@/lib/title-bar";
+import {
+  ThemeProvider,
+  useTheme,
+  readInitialTheme,
+  applyDocumentTheme,
+  syncNativeTitleBarWithRetry,
+} from "@/hooks/useTheme";
 import {
   createRuntimeHost,
   getHostApi,
@@ -324,6 +331,10 @@ function HostChrome({
         aria-hidden
       />
       <header className="pointer-events-none absolute inset-x-0 top-0 z-50 h-11 bg-transparent text-foreground/90">
+      <HostBrandMark
+        className="absolute left-4 top-0 z-[51] h-11 max-w-[92px] items-center"
+        surface="chrome"
+      />
       {onToggleSidebar ? (
         <Button
           type="button"
@@ -374,7 +385,9 @@ export default function App() {
       return syncNativeTitleBarWithRetry(titleBarPayloadForTheme(theme));
     }
     if (showStartupShell) {
-      return syncNativeTitleBarWithRetry(STARTUP_TITLE_BAR);
+      const startupTheme = readInitialTheme();
+      applyDocumentTheme(startupTheme);
+      return syncNativeTitleBarWithRetry(titleBarPayloadForStartup(startupTheme));
     }
     return syncNativeTitleBarWithRetry(titleBarPayloadForTheme(readInitialTheme()));
   }, [electronShell, showStartupShell]);
@@ -470,6 +483,9 @@ export default function App() {
                 window.setTimeout(resolve, 500 + attempt * 100);
               });
               continue;
+            }
+            if (electronShell) {
+              electronBootstrapStartedRef.current = false;
             }
             setState({ status: "error", message: msg });
             return;

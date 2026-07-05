@@ -1,27 +1,11 @@
 import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react";
-import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
-
-function resolveGatewayTarget(env: Record<string, string>): string {
-  if (env.NANOBOT_API_URL?.trim()) return env.NANOBOT_API_URL.trim();
-  try {
-    const configPath = path.join(os.homedir(), ".nanobot", "config.json");
-    const cfg = JSON.parse(fs.readFileSync(configPath, "utf8")) as {
-      gateway?: { port?: number };
-      web?: { port?: number };
-    };
-    const port = cfg.gateway?.port ?? cfg.web?.port ?? 8766;
-    return `http://127.0.0.1:${port}`;
-  } catch {
-    return "http://127.0.0.1:8766";
-  }
-}
+import { resolveDevGatewayTarget } from "./scripts/resolve-dev-gateway-target.mjs";
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
-  const target = resolveGatewayTarget(env);
+  const target = resolveDevGatewayTarget(env);
   console.log(`[vite] proxying /webui and /api to ${target}`);
   const hmrPath = "/__nanobot_vite_hmr";
 
