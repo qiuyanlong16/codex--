@@ -71,8 +71,20 @@ export function useNativeBootGate(): {
     };
   }, []);
 
-  if (state.status === "ready" || state.status === "loading") {
-    return { blocking: state.status === "loading", shell: null };
+  if (state.status === "loading") {
+    return {
+      blocking: true,
+      shell: (
+        <StartupShell
+          phase="first_run"
+          failed={null}
+        />
+      ),
+    };
+  }
+
+  if (state.status === "ready") {
+    return { blocking: false, shell: null };
   }
 
   return {

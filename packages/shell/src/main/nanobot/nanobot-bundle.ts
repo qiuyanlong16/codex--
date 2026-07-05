@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { app } from "electron";
 import { resolveResourcesPath, getByclawHomeDir } from "../core/platform-paths.js";
 import { venvPythonPath, resolveSystemTarCandidates, fixPortablePyvenvCfg } from "../core/venv-paths.js";
@@ -225,11 +225,27 @@ export async function ensureVenvExtracted(): Promise<void> {
 
     if (fs.existsSync(fallbackPython)) {
       fixPortablePyvenvCfg(fallbackVenv);
-      const probe = await runCommandAsync(fallbackPython, ["--version"]);
-      if (!probe) {
-        throw new Error(`venv_python_broken: cannot execute ${fallbackPython}`);
+      if (process.platform === "darwin") {
+        try {
+          spawnSync("xattr", ["-cr", fallbackVenv], { stdio: "pipe" });
+          spawnSync("codesign", ["-s", "-", "-f", fallbackPython], { stdio: "pipe" });
+        } catch {
+          /* best-effort */
+        }
       }
-      mainLog.info("nanobot", "venv extraction complete", { fallbackVenv, pythonVersion: probe.trim() });
+      const probe = await runCommandAsync(fallbackPython, ["--version"]);
+      if (!probe.ok) {
+        mainLog.error("nanobot", "venv python probe failed", {
+          python: fallbackPython,
+          stderr: probe.stderr,
+          stdout: probe.stdout,
+        });
+        throw new Error(`venv_python_broken: cannot execute ${fallbackPython}${probe.stderr ? `: ${probe.stderr.trim()}` : ""}`);
+      }
+      mainLog.info("nanobot", "venv extraction complete", {
+        fallbackVenv,
+        pythonVersion: probe.stdout.trim(),
+      });
     } else {
       // List directory contents to help diagnose what went wrong
       let dirContents: string[] = [];
@@ -278,7 +294,7 @@ async function resolveSystemTarExe(): Promise<string | null> {
     try {
       if (candidate !== "tar" && candidate !== "tar.exe" && !fs.existsSync(candidate)) continue;
       const version = await runCommandAsync(candidate, ["--version"]);
-      if (version !== null) return candidate;
+      if (version.ok) return candidate;
     } catch {
       /* try next */
     }
@@ -287,15 +303,22 @@ async function resolveSystemTarExe(): Promise<string | null> {
 }
 
 /** Run a command asynchronously and return stdout, or null on failure. */
-function runCommandAsync(cmd: string, args: string[]): Promise<string | null> {
+function runCommandAsync(
+  cmd: string,
+  args: string[],
+): Promise<{ ok: boolean; stdout: string; stderr: string }> {
   return new Promise((resolve) => {
     const child = spawn(cmd, args, { windowsHide: process.platform === "win32" });
     let stdout = "";
+    let stderr = "";
     child.stdout?.on("data", (data) => { stdout += data.toString(); });
+    child.stderr?.on("data", (data) => { stderr += data.toString(); });
     child.on("close", (code) => {
-      resolve(code === 0 ? stdout : null);
+      resolve({ ok: code === 0, stdout, stderr });
     });
-    child.on("error", () => resolve(null));
+    child.on("error", (err) => {
+      resolve({ ok: false, stdout, stderr: err.message });
+    });
   });
 }
 

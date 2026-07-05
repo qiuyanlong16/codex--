@@ -436,6 +436,23 @@ function makeMacVenvSelfContained() {
   }
   console.log("[pack-venv] materialized python binaries in bin/");
 
+  const venvLibDir = path.join(VENV_DIR, "lib");
+  const baseLibDir = path.join(basePrefix, "lib");
+  fs.mkdirSync(venvLibDir, { recursive: true });
+  let dylibCount = 0;
+  if (fs.existsSync(baseLibDir)) {
+    for (const entry of fs.readdirSync(baseLibDir)) {
+      if (!entry.endsWith(".dylib")) continue;
+      fs.copyFileSync(path.join(baseLibDir, entry), path.join(venvLibDir, entry));
+      dylibCount++;
+    }
+  }
+  if (dylibCount === 0) {
+    console.error("[pack-venv] ERROR: no libpython dylibs found in", baseLibDir);
+    process.exit(1);
+  }
+  console.log(`[pack-venv] copied ${dylibCount} dylib(s) into lib/`);
+
   const baseLibPy = path.join(basePrefix, "lib", pyVersion);
   const venvLibPy = path.join(VENV_DIR, "lib", pyVersion);
   if (!fs.existsSync(baseLibPy)) {
@@ -458,6 +475,15 @@ function makeMacVenvSelfContained() {
   }
 
   fixPortablePyvenvCfg(VENV_DIR);
+
+  if (process.platform === "darwin") {
+    for (const name of fs.readdirSync(binDir)) {
+      const binPath = path.join(binDir, name);
+      if (!fs.statSync(binPath).isFile()) continue;
+      fs.chmodSync(binPath, 0o755);
+      spawnSync("codesign", ["-s", "-", "-f", binPath], { stdio: "pipe" });
+    }
+  }
 
   const py = venvPythonExecutable(VENV_DIR);
   const versionProbe = spawnSync(py, ["--version"], { encoding: "utf8", stdio: "pipe" });

@@ -45,6 +45,7 @@ import type {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { fetchSettings, fetchWorkspaces } from "@/lib/api";
+import { getElectronApi } from "@/lib/electron-host";
 import {
   createRuntimeHost,
   getHostApi,
@@ -444,6 +445,8 @@ export default function App() {
 
   useEffect(() => {
     if (nativeBoot.blocking) return;
+    // Packaged Electron loads file:// first; bootstrap must wait for gateway URL.
+    if (getElectronApi() && window.location.protocol === "file:") return;
     const saved = loadSavedSecret();
     return bootstrapWithSecret(saved);
   }, [bootstrapWithSecret, nativeBoot.blocking]);
