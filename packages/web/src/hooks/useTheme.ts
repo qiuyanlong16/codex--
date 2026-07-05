@@ -7,9 +7,11 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import type { TitleBarThemePayload } from "@byclaw-nanobot/shared";
 import { getElectronApi } from "@/lib/electron-host";
+import { titleBarPayloadForTheme } from "@/lib/title-bar";
 
-type Theme = "light" | "dark";
+export type Theme = "light" | "dark";
 const STORAGE_KEY = "nanobot-webui.theme";
 const PRELOAD_POLL_MS = 50;
 const PRELOAD_POLL_MAX = 100;
@@ -42,14 +44,14 @@ export function applyDocumentTheme(theme: Theme): void {
 }
 
 /** Keep retrying until preload exposes setTitleBarTheme (gateway reload race). */
-export function syncNativeTitleBarWithRetry(theme: Theme): () => void {
+export function syncNativeTitleBarWithRetry(payload: TitleBarThemePayload): () => void {
   let cancelled = false;
   let pollTimer: ReturnType<typeof setInterval> | undefined;
 
   const sync = (): boolean => {
     const api = getElectronApi();
     if (!api?.app.setTitleBarTheme) return false;
-    void api.app.setTitleBarTheme({ mode: theme });
+    void api.app.setTitleBarTheme(payload);
     return true;
   };
 
@@ -79,7 +81,7 @@ export function useTheme(): {
 
   useEffect(() => {
     applyDocumentTheme(theme);
-    const stopTitleBarSync = syncNativeTitleBarWithRetry(theme);
+    const stopTitleBarSync = syncNativeTitleBarWithRetry(titleBarPayloadForTheme(theme));
     try {
       localStorage.setItem(STORAGE_KEY, theme);
     } catch {

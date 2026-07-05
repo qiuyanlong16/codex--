@@ -82,8 +82,8 @@ let currentTitleBarTheme: TitleBarThemePayload["mode"] =
   nativeTheme.shouldUseDarkColors ? "dark" : "light";
 
 const TITLE_BAR_THEMES: Record<TitleBarThemePayload["mode"], { color: string; symbolColor: string; backgroundColor: string }> = {
-  light: { color: "#f4f3f1", symbolColor: "#6b6b6b", backgroundColor: "#f4f3f1" },
-  dark: { color: "#161618", symbolColor: "#e5e5e5", backgroundColor: "#161618" },
+  light: { color: "#ffffff", symbolColor: "#6b6b6b", backgroundColor: "#ffffff" },
+  dark: { color: "#1a1a1a", symbolColor: "#e5e5e5", backgroundColor: "#1a1a1a" },
 };
 
 function resolvePackagedWebUiUrl(): string | null {
@@ -101,9 +101,15 @@ function resolvePackagedWebUiUrl(): string | null {
   return null;
 }
 
-function applyTitleBarTheme(mode: TitleBarThemePayload["mode"]): void {
-  currentTitleBarTheme = mode;
-  const palette = TITLE_BAR_THEMES[mode];
+function applyTitleBarTheme(payload: TitleBarThemePayload): void {
+  currentTitleBarTheme = payload.mode;
+  const palette = payload.surfaceColor
+    ? {
+        color: payload.surfaceColor,
+        symbolColor: payload.mode === "dark" ? "#e5e5e5" : "#6b6b6b",
+        backgroundColor: payload.surfaceColor,
+      }
+    : TITLE_BAR_THEMES[payload.mode];
   if (mainWindow && process.platform === "win32") {
     mainWindow.setBackgroundColor(palette.backgroundColor);
     mainWindow.setTitleBarOverlay({
@@ -118,52 +124,9 @@ function emitStartupPhase(phase: StartupPhaseEvent["phase"], detail?: string): v
   sendToRenderer(IPC_EVENTS.startupPhase, { phase, detail } satisfies StartupPhaseEvent);
 }
 
-const LOADING_HTML = `
-<!DOCTYPE html>
-<html>
-<head>
-  <style>
-    body {
-      margin: 0;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      height: 100vh;
-      background: #f4f3f1;
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-    }
-    .container {
-      text-align: center;
-    }
-    .spinner {
-      width: 40px;
-      height: 40px;
-      border: 3px solid #e0e0e0;
-      border-top-color: #6b6b6b;
-      border-radius: 50%;
-      animation: spin 0.8s linear infinite;
-      margin: 0 auto 20px;
-    }
-    @keyframes spin { to { transform: rotate(360deg); } }
-    .text {
-      color: #666;
-      font-size: 14px;
-    }
-  </style>
-</head>
-<body>
-  <div class="container">
-    <div class="spinner"></div>
-    <div class="text">Starting nanobot...</div>
-  </div>
-</body>
-</html>
-`;
-
 function resolveWebUrl(): string {
   if (isDev) return DEV_SERVER;
-  if (gatewayUrl) return gatewayUrl;
-  return resolvePackagedWebUiUrl() ?? `data:text/html,${encodeURIComponent(LOADING_HTML)}`;
+  return resolvePackagedWebUiUrl() ?? DEV_SERVER;
 }
 
 function sendToRenderer(channel: string, payload: unknown): void {
@@ -192,16 +155,20 @@ async function emitStartupEvent(
 }
 
 async function createWindow(): Promise<BrowserWindow> {
-  const initialTheme = TITLE_BAR_THEMES[currentTitleBarTheme];
+  const initialPalette = {
+    color: "#0b0d12",
+    symbolColor: "#e5e5e5",
+    backgroundColor: "#0b0d12",
+  };
   const win = new BrowserWindow({
     width: 1200,
     height: 760,
     show: false,
-    backgroundColor: initialTheme.backgroundColor,
+    backgroundColor: initialPalette.backgroundColor,
     titleBarStyle: process.platform === "win32" ? "hidden" : "default",
     titleBarOverlay: process.platform === "win32" ? {
-      color: initialTheme.color,
-      symbolColor: initialTheme.symbolColor,
+      color: initialPalette.color,
+      symbolColor: initialPalette.symbolColor,
       height: 36,
     } : undefined,
     webPreferences: {
@@ -360,17 +327,8 @@ async function runBackgroundStartup(): Promise<void> {
     };
     sendToRenderer(IPC_EVENTS.nanobotReady, nanobotReady);
 
-    // Load the WebUI from the main server (serves WebUI + API + WebSocket)
-    if (mainWindow && !isDev) {
-      mainLog.info("lifecycle", "loading WebUI", { url: nanobotUrl });
-      try {
-        await mainWindow.loadURL(nanobotUrl);
-      } catch (err) {
-        const detail = err instanceof Error ? err.message : String(err);
-        mainLog.error("lifecycle", "loadURL failed", { url: nanobotUrl, detail });
-        throw new Error(`loadurl_failed: ${detail}`);
-      }
-    }
+    // Keep the renderer on the packaged/dev WebUI — bootstrap reaches the gateway directly.
+    mainLog.info("lifecycle", "gateway ready for renderer bootstrap", { url: nanobotUrl });
 
     const startupReady: StartupReadyEvent = {
       nanobotPort: mainServerPort,

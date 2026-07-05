@@ -4,7 +4,7 @@ import type { LogWriteRequest, TitleBarThemePayload } from "@byclaw-nanobot/shar
 import { getStartupState } from "../core/startup-state.js";
 
 export type AppHandlerOptions = {
-  applyTitleBarTheme?: (mode: TitleBarThemePayload["mode"]) => void;
+  applyTitleBarTheme?: (payload: TitleBarThemePayload) => void;
   retryStartup?: () => Promise<void>;
 };
 
@@ -23,7 +23,7 @@ export function registerAppHandlers(options: AppHandlerOptions = {}): void {
   });
 
   ipcMain.handle(IPC.app.setTitleBarTheme, (_event, payload: TitleBarThemePayload) => {
-    options.applyTitleBarTheme?.(payload.mode);
+    options.applyTitleBarTheme?.(payload);
     return { ok: true };
   });
 

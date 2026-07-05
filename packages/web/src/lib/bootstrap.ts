@@ -1,5 +1,6 @@
 import type { BootstrapResponse } from "./types";
 import { fetchWithTimeout } from "./http";
+import { getGatewayBaseUrl } from "./gateway-url";
 
 const SECRET_STORAGE_KEY = "nanobot-webui.bootstrap-secret";
 
@@ -80,6 +81,11 @@ export function deriveWsUrl(
 ): string {
   const query = `?token=${encodeURIComponent(token)}`;
   const path = wsPath && wsPath.startsWith("/") ? wsPath : `/${wsPath || ""}`;
+  const gatewayBase = getGatewayBaseUrl();
+  if (typeof window !== "undefined" && window.location.port === "5173" && gatewayBase) {
+    const host = new URL(gatewayBase).host;
+    return `ws://${host}${path}${query}`;
+  }
   if (typeof window !== "undefined" && window.location.port === "5173") {
     const host = window.location.hostname.includes(":")
       ? `[${window.location.hostname}]`
@@ -91,7 +97,8 @@ export function deriveWsUrl(
     return `${wsUrl}${join}token=${encodeURIComponent(token)}`;
   }
   if (typeof window === "undefined") {
-    return `ws://127.0.0.1:8765${path}${query}`;
+    const host = gatewayBase ? new URL(gatewayBase).host : "127.0.0.1:8766";
+    return `ws://${host}${path}${query}`;
   }
   const scheme = window.location.protocol === "https:" ? "wss" : "ws";
   const host = window.location.host;

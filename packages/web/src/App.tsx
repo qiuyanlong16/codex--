@@ -22,6 +22,7 @@ import { useSidebarState } from "@/hooks/useSidebarState";
 import { useSkills } from "@/hooks/useSkills";
 import { StartupShell } from "@/components/startup/StartupShell";
 import { useNativeBootGate } from "@/hooks/useNativeBootGate";
+import { useElectronGatewayUrl } from "@/hooks/useElectronGateway";
 import { ThemeProvider, useTheme, readInitialTheme, applyDocumentTheme, syncNativeTitleBarWithRetry } from "@/hooks/useTheme";
 import { cn } from "@/lib/utils";
 import {
@@ -48,6 +49,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { fetchSettings, fetchWorkspaces } from "@/lib/api";
 import { getElectronApi, isLikelyElectronShell } from "@/lib/electron-host";
+import { STARTUP_TITLE_BAR, titleBarPayloadForTheme } from "@/lib/title-bar";
 import {
   createRuntimeHost,
   getHostApi,
@@ -351,18 +353,34 @@ function HostChrome({
 export default function App() {
   const { t } = useTranslation();
   const nativeBoot = useNativeBootGate();
+  const gatewayUrl = useElectronGatewayUrl();
+  const electronShell = isLikelyElectronShell();
   const [state, setState] = useState<BootState>({ status: "loading" });
   const bootstrapSecretRef = useRef("");
 
+  const showStartupShell =
+    electronShell
+    && (nativeBoot.blocking
+      || !gatewayUrl
+      || state.status === "loading"
+      || state.status === "error");
+
   useEffect(() => {
-    const theme = readInitialTheme();
-    applyDocumentTheme(theme);
-    return syncNativeTitleBarWithRetry(theme);
-  }, []);
+    if (!electronShell) {
+      const theme = readInitialTheme();
+      applyDocumentTheme(theme);
+      return syncNativeTitleBarWithRetry(titleBarPayloadForTheme(theme));
+    }
+    if (showStartupShell) {
+      return syncNativeTitleBarWithRetry(STARTUP_TITLE_BAR);
+    }
+    return syncNativeTitleBarWithRetry(titleBarPayloadForTheme(readInitialTheme()));
+  }, [electronShell, showStartupShell]);
 
   const refreshReadyClient = useCallback(
     async (client: NanobotClient, fallbackSurface: RuntimeSurface) => {
-      const boot = await fetchBootstrap("", bootstrapSecretRef.current);
+      const bootBase = electronShell && gatewayUrl ? gatewayUrl : "";
+      const boot = await fetchBootstrap(bootBase, bootstrapSecretRef.current);
       const url = deriveWsUrl(boot.ws_path, boot.token, boot.ws_url);
       const runtimeSurface = isLikelyElectronShell()
         ? "native"
@@ -389,20 +407,24 @@ export default function App() {
       );
       return { token: boot.token, url };
     },
-    [],
+    [electronShell, gatewayUrl],
   );
 
   const bootstrapWithSecret = useCallback(
-    (secret: string) => {
+    (secret: string, baseUrl = "") => {
       let cancelled = false;
       (async () => {
         setState({ status: "loading" });
-        const electronShell = isLikelyElectronShell();
-        const maxAttempts = electronShell ? 90 : 1;
+        const useGateway = electronShell && baseUrl;
+        const maxAttempts = useGateway ? 90 : 1;
         for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
           if (cancelled) return;
           try {
-            const boot = await fetchBootstrap("", secret, electronShell ? 5_000 : undefined);
+            const boot = await fetchBootstrap(
+              useGateway ? baseUrl : "",
+              secret,
+              useGateway ? 5_000 : undefined,
+            );
             if (cancelled) return;
             if (secret) saveSecret(secret);
             const url = deriveWsUrl(boot.ws_path, boot.token, boot.ws_url);
@@ -455,7 +477,7 @@ export default function App() {
         cancelled = true;
       };
     },
-    [refreshReadyClient],
+    [electronShell, refreshReadyClient],
   );
 
   useEffect(() => {
@@ -475,19 +497,53 @@ export default function App() {
   }, [refreshReadyClient, state]);
 
   useEffect(() => {
-    if (nativeBoot.blocking) return;
-    // Packaged Electron loads file:// first; bootstrap must wait for gateway URL.
-    if (isLikelyElectronShell() && window.location.protocol === "file:") return;
+    if (showStartupShell) return;
+    if (electronShell) {
+      if (!gatewayUrl) return;
+      const saved = loadSavedSecret();
+      return bootstrapWithSecret(saved, gatewayUrl);
+    }
     const saved = loadSavedSecret();
     return bootstrapWithSecret(saved);
-  }, [bootstrapWithSecret, nativeBoot.blocking]);
+  }, [bootstrapWithSecret, showStartupShell, electronShell, gatewayUrl]);
 
-  if (nativeBoot.blocking && nativeBoot.shell) {
-    return nativeBoot.shell;
-  }
+  const handleStartupRetry = useCallback(() => {
+    const api = getElectronApi();
+    if (nativeBoot.failed) {
+      if (api) void api.app.retryStartup();
+      return;
+    }
+    if (state.status === "error") {
+      setState({ status: "loading" });
+      const saved = loadSavedSecret();
+      if (gatewayUrl) bootstrapWithSecret(saved, gatewayUrl);
+    }
+  }, [bootstrapWithSecret, gatewayUrl, nativeBoot.failed, state.status]);
 
-  if (state.status === "loading" && isLikelyElectronShell()) {
-    return <StartupShell phase="ready" failed={null} />;
+  if (showStartupShell) {
+    const bootstrapFailed =
+      state.status === "error"
+        ? {
+            code: state.message,
+            message: state.message,
+            i18nKey: "startup.gatewayError",
+          }
+        : null;
+    const failed = nativeBoot.failed ?? bootstrapFailed;
+    const phase = failed
+      ? "failed"
+      : !gatewayUrl
+        ? nativeBoot.phase
+        : state.status === "loading"
+          ? "ready"
+          : nativeBoot.phase;
+    return (
+      <StartupShell
+        phase={phase}
+        failed={failed}
+        onRetry={handleStartupRetry}
+      />
+    );
   }
 
   if (state.status === "loading") {
@@ -514,6 +570,19 @@ export default function App() {
     );
   }
   if (state.status === "error") {
+    if (electronShell) {
+      return (
+        <StartupShell
+          phase="failed"
+          failed={{
+            code: state.message,
+            message: state.message,
+            i18nKey: "startup.gatewayError",
+          }}
+          onRetry={handleStartupRetry}
+        />
+      );
+    }
     return (
       <div className="flex h-full w-full items-center justify-center px-4 text-center">
         <div className="flex max-w-md flex-col items-center gap-3">

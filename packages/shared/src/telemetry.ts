@@ -49,6 +49,8 @@ export type TitleBarThemeMode = "light" | "dark";
 
 export interface TitleBarThemePayload {
   mode: TitleBarThemeMode;
+  /** Windows titleBarOverlay color — matches the visible page background when set */
+  surfaceColor?: string;
 }
 
 export interface StartupStateSnapshot {

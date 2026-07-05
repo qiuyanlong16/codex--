@@ -48,6 +48,8 @@
     "failed": {
       "title": "无法启动 codex--",
       "hint": "请检查模型供应商配置与日志，然后重试。",
+      "gatewayHint": "Gateway 已启动，但界面无法连接。请查看日志后重试。",
+      "gatewayError": "连接错误",
       "error": "启动错误",
       "logDir": "日志目录",
       "retry": "重试",

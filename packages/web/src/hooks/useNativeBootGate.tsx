@@ -29,6 +29,8 @@ function snapshotToState(snapshot: Awaited<ReturnType<ElectronHostApi["startup"]
 export function useNativeBootGate(): {
   blocking: boolean;
   shell: ReactNode | null;
+  phase: StartupPhaseEvent["phase"];
+  failed: StartupFailedEvent | null;
 } {
   const [state, setState] = useState<NativeBootState>(() =>
     isLikelyElectronShell() ? { status: "loading" } : { status: "ready" },
@@ -91,7 +93,6 @@ export function useNativeBootGate(): {
         if (attempts >= PRELOAD_POLL_MAX) {
           clearInterval(pollTimer);
           pollTimer = undefined;
-          setState({ status: "ready" });
         }
       }, PRELOAD_POLL_MS);
     }
@@ -114,11 +115,13 @@ export function useNativeBootGate(): {
           failed={null}
         />
       ),
+      phase: "first_run",
+      failed: null,
     };
   }
 
   if (state.status === "ready") {
-    return { blocking: false, shell: null };
+    return { blocking: false, shell: null, phase: "ready", failed: null };
   }
 
   return {
@@ -130,5 +133,7 @@ export function useNativeBootGate(): {
         onRetry={handleRetry}
       />
     ),
+    phase: state.phase,
+    failed: state.status === "failed" ? state.failed : null,
   };
 }
