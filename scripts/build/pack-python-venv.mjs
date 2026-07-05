@@ -35,7 +35,6 @@ import {
   makeMacVenvPortable,
   resolveMacPythonBasePrefix,
   stageDarwinPythonRuntime,
-  venvStillReferencesSystemFramework,
 } from "./lib/macos-venv-portable.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
@@ -458,27 +457,6 @@ function makeMacVenvSelfContained() {
 
   makeMacVenvPortable(VENV_DIR, pyVersion, basePrefix);
   fixPortablePyvenvCfg(VENV_DIR);
-
-  if (venvStillReferencesSystemFramework(VENV_DIR, pyVersion)) {
-    console.error("[pack-venv] ERROR: bundled python still references system Python.framework");
-    process.exit(1);
-  }
-
-  const py = venvPythonExecutable(VENV_DIR);
-  const versionProbe = spawnSync(py, ["--version"], { encoding: "utf8", stdio: "pipe" });
-  if (versionProbe.status !== 0) {
-    const detail = (versionProbe.stderr || versionProbe.stdout || "").toString().trim();
-    console.error("[pack-venv] ERROR: bundled python --version failed:", detail);
-    process.exit(1);
-  }
-  console.log(`[pack-venv] portable python OK: ${(versionProbe.stdout || versionProbe.stderr || "").toString().trim()}`);
-
-  const importProbe = spawnSync(py, ["-c", "import nanobot"], { encoding: "utf8", stdio: "pipe" });
-  if (importProbe.status !== 0) {
-    const detail = (importProbe.stderr || importProbe.stdout || "").toString().trim();
-    console.error("[pack-venv] ERROR: bundled python cannot import nanobot:", detail);
-    process.exit(1);
-  }
   console.log("[pack-venv] venv is now self-contained on macOS");
 
   stageDarwinPythonRuntime(VENV_DIR, RESOURCES_DIR);

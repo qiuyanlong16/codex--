@@ -89,7 +89,10 @@ export function resolveMacPythonBasePrefix(pyvenvCfgPath) {
   const home = homeMatch?.[1]?.trim();
   if (home) {
     const basePrefix = path.dirname(home);
-    if (fs.existsSync(path.join(basePrefix, "Resources", "Python.app"))) {
+    if (
+      fs.existsSync(path.join(basePrefix, "Resources", "Python.app")) ||
+      fs.existsSync(path.join(basePrefix, "lib"))
+    ) {
       return basePrefix;
     }
   }
@@ -97,10 +100,18 @@ export function resolveMacPythonBasePrefix(pyvenvCfgPath) {
   const frameworkMatch = command.match(
     /(\/Library\/Frameworks\/Python\.framework\/Versions\/[^/\s]+)/,
   );
-  if (frameworkMatch?.[1] && fs.existsSync(path.join(frameworkMatch[1], "Resources", "Python.app"))) {
+  if (frameworkMatch?.[1] && fs.existsSync(path.join(frameworkMatch[1], "lib"))) {
     return frameworkMatch[1];
   }
-  throw new Error("could not resolve macOS Python.framework base prefix from pyvenv.cfg");
+  const hostedMatch = command.match(/(\/[^\s]+hostedtoolcache\/Python\/[^/\s]+\/[^/\s]+)/);
+  if (hostedMatch?.[1] && fs.existsSync(path.join(hostedMatch[1], "lib"))) {
+    return hostedMatch[1];
+  }
+  throw new Error("could not resolve macOS Python base prefix from pyvenv.cfg");
+}
+
+function hasFrameworkPythonApp(basePrefix) {
+  return fs.existsSync(path.join(basePrefix, "Resources", "Python.app"));
 }
 
 export function copyPythonAppResources(basePrefix, venvRoot) {
@@ -149,15 +160,25 @@ export function copyLibpythonDylib(basePrefix, venvRoot, pyVersion) {
   }
 }
 
-function resolveBundledTarget(venvRoot, pyVersion, ref) {
+function resolveBundledTarget(venvRoot, pyVersion, ref, basePrefix) {
   const libDir = path.join(venvRoot, "lib");
   const pythonRef = frameworkPythonRef(pyVersion);
   const libPrefix = frameworkLibPrefix(pyVersion);
-  if (ref === pythonRef) {
+  if (ref === pythonRef || (basePrefix && ref === path.join(basePrefix, "Python"))) {
     return path.join(libDir, libpythonFileName(pyVersion));
   }
   if (ref.startsWith(libPrefix)) {
     return path.join(libDir, path.basename(ref));
+  }
+  if (basePrefix && ref.startsWith(`${basePrefix}/lib/`)) {
+    const bundled = path.join(venvRoot, ref.slice(basePrefix.length + 1));
+    if (fs.existsSync(bundled)) return bundled;
+    const fallback = path.join(libDir, path.basename(ref));
+    if (fs.existsSync(fallback)) return fallback;
+  }
+  if (basePrefix && ref.startsWith(`${basePrefix}/`)) {
+    const fallback = path.join(libDir, path.basename(ref));
+    if (fs.existsSync(fallback)) return fallback;
   }
   return null;
 }
@@ -174,7 +195,7 @@ function walkMachOFiles(dir, visitor) {
   }
 }
 
-export function fixMacPythonDylibs(venvRoot, pyVersion) {
+export function fixMacPythonDylibs(venvRoot, pyVersion, basePrefix) {
   const libDir = path.join(venvRoot, "lib");
   const libName = libpythonFileName(pyVersion);
   const libPath = path.join(libDir, libName);
@@ -183,21 +204,23 @@ export function fixMacPythonDylibs(venvRoot, pyVersion) {
   if (!fs.existsSync(libPath)) {
     throw new Error(`missing bundled libpython: ${libPath}`);
   }
-  if (!fs.existsSync(realPy)) {
+  if (hasFrameworkPythonApp(basePrefix ?? "") && !fs.existsSync(realPy)) {
     throw new Error(`missing bundled Python.app executable: ${realPy}`);
   }
 
   runInstallNameTool(["-id", `@loader_path/${libName}`, libPath]);
 
-  walkMachOFiles(venvRoot, (filePath) => {
-    for (const ref of listLoadedLibraries(filePath)) {
-      const target = resolveBundledTarget(venvRoot, pyVersion, ref);
-      if (!target || !fs.existsSync(target)) continue;
-      changeLoadedLibrary(filePath, ref, loaderPathRef(filePath, target));
-    }
-  });
+  for (let pass = 0; pass < 3; pass++) {
+    walkMachOFiles(venvRoot, (filePath) => {
+      for (const ref of listLoadedLibraries(filePath)) {
+        const target = resolveBundledTarget(venvRoot, pyVersion, ref, basePrefix);
+        if (!target || !fs.existsSync(target)) continue;
+        changeLoadedLibrary(filePath, ref, loaderPathRef(filePath, target));
+      }
+    });
+  }
 
-  console.log("[macos-venv] rewrote Python.framework dylib references");
+  console.log("[macos-venv] rewrote Python dylib references");
 }
 
 export function adHocSignMacVenv(venvRoot) {
@@ -243,38 +266,34 @@ function signMachOFilesInTree(dir) {
   }
 }
 
-export function venvStillReferencesSystemFramework(venvRoot, pyVersion) {
-  const pythonExe = path.join(venvRoot, "bin", "python3");
-  if (!fs.existsSync(pythonExe)) return true;
-  const libPrefix = frameworkLibPrefix(pyVersion);
-  const pythonRef = frameworkPythonRef(pyVersion);
-  let hasSystemRef = false;
-  walkMachOFiles(venvRoot, (filePath) => {
-    for (const ref of listLoadedLibraries(filePath)) {
-      if (ref === pythonRef || ref.startsWith(libPrefix)) {
-        hasSystemRef = true;
-      }
-    }
-  });
-  return hasSystemRef;
+export function verifyPortableMacPython(venvRoot, pyVersion) {
+  const py = path.join(venvRoot, "bin", "python3");
+  const probe = spawnSync(py, ["-c", "import ssl, nanobot"], { encoding: "utf8", stdio: "pipe" });
+  if (probe.status !== 0) {
+    const detail = (probe.stderr || probe.stdout || "").toString().trim();
+    throw new Error(detail || "import ssl,nanobot failed");
+  }
+  console.log(`[macos-venv] portable python import OK (${pyVersion})`);
 }
 
 export function makeMacVenvPortable(venvRoot, pyVersion, basePrefix) {
-  copyPythonAppResources(basePrefix, venvRoot);
-  copyLibpythonDylib(basePrefix, venvRoot, pyVersion);
-  fixMacPythonDylibs(venvRoot, pyVersion);
-  adHocSignMacVenv(venvRoot);
+  copyFrameworkLibs(basePrefix, venvRoot);
+  if (hasFrameworkPythonApp(basePrefix)) {
+    copyPythonAppResources(basePrefix, venvRoot);
+  }
+  fixMacPythonDylibs(venvRoot, pyVersion, basePrefix);
+  adHocSignMacVenvEssentials(venvRoot, pyVersion);
+  verifyPortableMacPython(venvRoot, pyVersion);
 }
 
 export function repairMacVenvFromRuntimeBundle(venvRoot, runtimeRoot, pyVersion) {
   const resourcesSrc = path.join(runtimeRoot, "Resources", "Python.app");
   const resourcesDest = path.join(venvRoot, "lib", "Resources", "Python.app");
-  if (!fs.existsSync(resourcesSrc)) {
-    throw new Error(`repair bundle missing Python.app at ${resourcesSrc}`);
+  if (fs.existsSync(resourcesSrc)) {
+    fs.mkdirSync(path.join(venvRoot, "lib", "Resources"), { recursive: true });
+    fs.rmSync(resourcesDest, { recursive: true, force: true });
+    copyDirSync(resourcesSrc, resourcesDest);
   }
-  fs.mkdirSync(path.join(venvRoot, "lib", "Resources"), { recursive: true });
-  fs.rmSync(resourcesDest, { recursive: true, force: true });
-  copyDirSync(resourcesSrc, resourcesDest);
 
   const destLibDir = path.join(venvRoot, "lib");
   fs.mkdirSync(destLibDir, { recursive: true });
@@ -284,8 +303,8 @@ export function repairMacVenvFromRuntimeBundle(venvRoot, runtimeRoot, pyVersion)
     fs.chmodSync(path.join(destLibDir, entry), 0o755);
   }
 
-  fixMacPythonDylibs(venvRoot, pyVersion);
-  adHocSignMacVenv(venvRoot);
+  fixMacPythonDylibs(venvRoot, pyVersion, null);
+  adHocSignMacVenvEssentials(venvRoot, pyVersion);
 }
 
 export function stageDarwinPythonRuntime(venvRoot, destDir) {
@@ -293,8 +312,10 @@ export function stageDarwinPythonRuntime(venvRoot, destDir) {
   fs.mkdirSync(runtimeRoot, { recursive: true });
   const resourcesSrc = path.join(venvRoot, "lib", "Resources");
   const resourcesDest = path.join(runtimeRoot, "Resources");
-  fs.rmSync(resourcesDest, { recursive: true, force: true });
-  copyDirSync(resourcesSrc, resourcesDest);
+  if (fs.existsSync(resourcesSrc)) {
+    fs.rmSync(resourcesDest, { recursive: true, force: true });
+    copyDirSync(resourcesSrc, resourcesDest);
+  }
 
   for (const entry of fs.readdirSync(path.join(venvRoot, "lib"))) {
     if (!entry.endsWith(".dylib")) continue;

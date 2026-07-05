@@ -63,7 +63,6 @@ nsis:
   installerSidebar: resources/installer/wizard-sidebar.bmp
   uninstallerSidebar: resources/installer/wizard-sidebar.bmp
   installerHeader: resources/installer/wizard-banner.bmp
-  uninstallerHeader: resources/installer/wizard-banner.bmp
   installerIcon: resources/icons/icon.ico
   uninstallerIcon: resources/icons/icon.ico
   include: resources/installer/custom.nsh
