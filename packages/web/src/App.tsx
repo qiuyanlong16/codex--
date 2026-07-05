@@ -49,6 +49,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { fetchSettings, fetchWorkspaces } from "@/lib/api";
 import { getElectronApi, isLikelyElectronShell } from "@/lib/electron-host";
+import { resolveBootstrapBaseUrl } from "@/lib/gateway-url";
 import { STARTUP_TITLE_BAR, titleBarPayloadForTheme } from "@/lib/title-bar";
 import {
   createRuntimeHost,
@@ -380,7 +381,7 @@ export default function App() {
 
   const refreshReadyClient = useCallback(
     async (client: NanobotClient, fallbackSurface: RuntimeSurface) => {
-      const bootBase = electronShell && gatewayUrl ? gatewayUrl : "";
+      const bootBase = resolveBootstrapBaseUrl(gatewayUrl);
       const boot = await fetchBootstrap(bootBase, bootstrapSecretRef.current);
       const url = deriveWsUrl(boot.ws_path, boot.token, boot.ws_url);
       const runtimeSurface = isLikelyElectronShell()
@@ -416,13 +417,14 @@ export default function App() {
       let cancelled = false;
       (async () => {
         setState({ status: "loading" });
-        const useGateway = electronShell && baseUrl;
+        const bootBase = resolveBootstrapBaseUrl(baseUrl || gatewayUrl);
+        const useGateway = electronShell && (baseUrl || gatewayUrl);
         const maxAttempts = useGateway ? 90 : 1;
         for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
           if (cancelled) return;
           try {
             const boot = await fetchBootstrap(
-              useGateway ? baseUrl : "",
+              bootBase,
               secret,
               useGateway ? 5_000 : undefined,
             );
@@ -478,7 +480,7 @@ export default function App() {
         cancelled = true;
       };
     },
-    [electronShell, refreshReadyClient],
+    [electronShell, gatewayUrl, refreshReadyClient],
   );
 
   useEffect(() => {

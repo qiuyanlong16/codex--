@@ -22,6 +22,7 @@ function resolveGatewayTarget(env: Record<string, string>): string {
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
   const target = resolveGatewayTarget(env);
+  console.log(`[vite] proxying /webui and /api to ${target}`);
   const hmrPath = "/__nanobot_vite_hmr";
 
   return {
