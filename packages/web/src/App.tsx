@@ -315,7 +315,12 @@ function HostChrome({
   const { t } = useTranslation();
 
   return (
-    <header className="host-drag-region pointer-events-none absolute inset-x-0 top-0 z-40 h-11 bg-transparent text-foreground/90">
+    <>
+      <div
+        className="host-drag-region absolute inset-x-0 top-0 z-40 h-11 bg-transparent"
+        aria-hidden
+      />
+      <header className="pointer-events-none absolute inset-x-0 top-0 z-50 h-11 bg-transparent text-foreground/90">
       {onToggleSidebar ? (
         <Button
           type="button"
@@ -339,6 +344,7 @@ function HostChrome({
         </div>
       ) : null}
     </header>
+    </>
   );
 }
 
@@ -631,7 +637,7 @@ function Shell({
   const effectiveRuntimeSurface =
     settingsSnapshot?.surface ?? settingsSnapshot?.runtime_surface ?? runtimeSurface;
   const showHostChrome =
-    isLikelyElectronShell() || effectiveRuntimeSurface === "native";
+    isLikelyElectronShell() || getElectronApi() != null || effectiveRuntimeSurface === "native";
   const showMainSidebar = view !== "settings";
 
   const navigate = useCallback(
@@ -1508,6 +1514,7 @@ function Shell({
         <div
           className={cn(
             "relative flex h-full w-full overflow-hidden",
+            showHostChrome && "box-border pt-11",
           )}
         >
           {/* Host sidebar: in normal flow, so the thread area width stays honest. */}
