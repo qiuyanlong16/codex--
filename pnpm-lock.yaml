@@ -141,6 +141,9 @@ importers:
       "@testing-library/user-event":
         specifier: ^14.5.2
         version: 14.6.1(@testing-library/dom@10.4.1)
+      "@types/mdast":
+        specifier: ^4.0.4
+        version: 4.0.4
       "@types/node":
         specifier: ^24.0.0
         version: 24.13.2
@@ -174,6 +177,12 @@ importers:
       katex:
         specifier: ^0.16.21
         version: 0.16.47
+      micromark-extension-math:
+        specifier: ^3.1.0
+        version: 3.1.0
+      micromark-util-types:
+        specifier: ^2.0.2
+        version: 2.0.2
       postcss:
         specifier: ^8.5.0
         version: 8.5.16
@@ -189,6 +198,9 @@ importers:
       typescript-eslint:
         specifier: ^8.59.4
         version: 8.62.1(eslint@10.6.0(jiti@1.21.7))(typescript@5.9.3)
+      unified:
+        specifier: ^11.0.5
+        version: 11.0.5
       vite:
         specifier: ^5.4.11
         version: 5.4.21(@types/node@24.13.2)(lightningcss@1.32.0)

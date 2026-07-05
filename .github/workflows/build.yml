@@ -27,6 +27,7 @@ jobs:
     env:
       BYCLAW_TARGET_PLATFORM: win32
       BYCLAW_TARGET_ARCH: x64
+      PNPM_CONFIG_FROZEN_LOCKFILE: "false"
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -52,6 +53,7 @@ jobs:
       BYCLAW_TARGET_PLATFORM: darwin
       BYCLAW_TARGET_ARCH: arm64
       CSC_IDENTITY_AUTO_DISCOVERY: "false"
+      PNPM_CONFIG_FROZEN_LOCKFILE: "false"
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4

@@ -104,6 +104,19 @@ console.log(`[create-python-venv] system Python: ${versionStr}`);
 
 const pyInVenv = venvPython();
 
+function venvHasPip() {
+  const r = spawnSync(pyInVenv, ["-m", "pip", "--version"], {
+    encoding: "utf8",
+    stdio: "pipe",
+  });
+  return r.status === 0;
+}
+
+if (fs.existsSync(pyInVenv) && !venvHasPip()) {
+  console.log("[create-python-venv] existing venv is incomplete (no pip), recreating...");
+  fs.rmSync(VENV_DIR, { recursive: true, force: true });
+}
+
 if (fs.existsSync(pyInVenv)) {
   console.log("[create-python-venv] venv already exists, reusing...");
 } else {
