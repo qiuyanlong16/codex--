@@ -186,7 +186,7 @@ export async function ensureVenvExtracted(): Promise<void> {
     }
 
     // Extract each shard using system tar.exe (async).
-    const tarExe = resolveSystemTarExe();
+    const tarExe = await resolveSystemTarExe();
     if (!tarExe) {
       mainLog.error("nanobot", "system tar not found, cannot extract venv");
       return;
