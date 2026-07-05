@@ -164,14 +164,33 @@ run(pyInVenv, ["-m", "pip", "install", "--upgrade", "pip", "setuptools", "wheel"
 
 console.log(`[create-python-venv] installing nanobot from ${VENDOR_NANOBOT}...`);
 
-run(pyInVenv, ["-m", "pip", "install", ".[api]"], {
-  cwd: VENDOR_NANOBOT,
-  stdio: process.env.CI === "true" ? "inherit" : undefined,
-  env: {
-    PIP_DISABLE_PIP_VERSION_CHECK: "1",
-    PIP_PREFER_BINARY: "1",
-  },
-});
+function vendorNanobotVersion() {
+  const pyproject = fs.readFileSync(path.join(VENDOR_NANOBOT, "pyproject.toml"), "utf8");
+  const match = pyproject.match(/^version\s*=\s*"([^"]+)"/m);
+  return match?.[1] ?? null;
+}
+
+const pipEnv = {
+  PIP_DISABLE_PIP_VERSION_CHECK: "1",
+  PIP_PREFER_BINARY: "1",
+};
+const pipStdio = process.env.CI === "true" ? "inherit" : undefined;
+const usePypiOnDarwinCi =
+  process.env.CI === "true" &&
+  (process.platform === "darwin" || process.env.BYCLAW_TARGET_PLATFORM === "darwin");
+
+if (usePypiOnDarwinCi) {
+  const version = vendorNanobotVersion();
+  const spec = version ? `nanobot-ai[api]==${version}` : "nanobot-ai[api]";
+  console.log(`[create-python-venv] macOS CI: installing ${spec} from PyPI`);
+  run(pyInVenv, ["-m", "pip", "install", spec], { stdio: pipStdio, env: pipEnv });
+} else {
+  run(pyInVenv, ["-m", "pip", "install", ".[api]"], {
+    cwd: VENDOR_NANOBOT,
+    stdio: pipStdio,
+    env: pipEnv,
+  });
+}
 
 // ---------------------------------------------------------------------------
 // 5. Verify the installation
