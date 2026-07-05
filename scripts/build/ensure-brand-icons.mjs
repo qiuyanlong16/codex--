@@ -20,6 +20,14 @@ function runNode(script) {
   if (r.status !== 0) process.exit(r.status ?? 1);
 }
 
+function finish() {
+  if (isWindowsTarget()) {
+    runNode(join(ROOT, "scripts/build/gen-installer-images.mjs"));
+  }
+  console.log("[ensure-brand-icons] brand icons ready");
+  process.exit(0);
+}
+
 function iconsReady() {
   if (!existsSync(iconPng)) return false;
   if (resolveTargetPlatform() === "darwin") {
@@ -35,18 +43,15 @@ if (existsSync(sourceJpg)) {
   console.log("[ensure-brand-icons] generating from source JPG");
   runNode(join(ROOT, "scripts/build/gen-brand-icons-from-source.mjs"));
   if (iconsReady()) {
-    console.log("[ensure-brand-icons] brand icons ready");
-    process.exit(0);
+    finish();
   }
 }
 
 if (iconsReady()) {
   console.log("[ensure-brand-icons] using existing brand icons");
-  process.exit(0);
+  finish();
 }
 
 console.log(`[ensure-brand-icons] generating placeholders (target=${resolveTargetPlatform()})`);
 runNode(join(ROOT, "scripts/build/gen-placeholder-icons.mjs"));
-if (isWindowsTarget()) {
-  runNode(join(ROOT, "scripts/build/gen-installer-images.mjs"));
-}
+finish();
